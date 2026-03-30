@@ -1,31 +1,45 @@
 # NEPQ Coach - AI Sales Meeting Assistant
 
-Real-time AI coaching for sales calls using the NEPQ (Neuro-Emotional Persuasion Questions) methodology. A bot joins your Google Meet, transcribes the conversation live, and suggests what to say next.
+Real-time AI coaching for sales calls using the NEPQ (Neuro-Emotional Persuasion Questions) methodology. Captures your Google Meet audio directly from your browser, transcribes it live, and suggests what to say next.
+
+**No downloads. No bots joining your call. No extensions. Just a web app.**
 
 ## How It Works
 
-1. **Paste your Google Meet link** into the dashboard
-2. **A bot joins your meeting** as a participant (via Puppeteer)
-3. **Live transcription** streams what the prospect is saying (via Deepgram)
-4. **AI coaching** suggests NEPQ-based responses in real-time (via Claude)
-5. **You see it all** on a sleek live dashboard
+1. Open this app in one browser tab, your Google Meet in another
+2. Click **Start Coaching**
+3. Your browser asks you to share a tab — select your Google Meet tab and check **"Share audio"**
+4. The app transcribes the conversation in real-time
+5. AI suggests NEPQ-based responses as the prospect speaks
+
+Your prospect never sees anything — no bot joins the call. The audio is captured directly from your browser tab.
 
 ## Architecture
 
 ```
-Google Meet  -->  Puppeteer Bot  -->  Audio Stream  -->  Deepgram (STT)
-                                                              |
-                                                        Transcript
-                                                              |
-Dashboard  <--  WebSocket  <--  Express Server  <--  Claude API (NEPQ Coach)
+Your Browser Tab (Google Meet)
+        |
+        | getDisplayMedia (tab audio sharing)
+        v
+NEPQ Coach Web App (another tab)
+        |
+        | WebSocket (binary audio stream)
+        v
+Express Server
+   ├── Deepgram (real-time transcription)
+   └── Claude API (NEPQ coaching suggestions)
+        |
+        | WebSocket (JSON)
+        v
+NEPQ Coach Web App (live dashboard)
 ```
 
 ## Prerequisites
 
 - **Node.js** 18+
-- **Google Chrome** installed (Puppeteer uses it)
-- **Deepgram API key** - [Get one here](https://console.deepgram.com) (free tier available)
-- **Anthropic API key** - [Get one here](https://console.anthropic.com)
+- **Chrome, Edge, or any Chromium browser** (for tab audio sharing via `getDisplayMedia`)
+- **Deepgram API key** — [Get one here](https://console.deepgram.com) (free tier available)
+- **Anthropic API key** — [Get one here](https://console.anthropic.com)
 
 ## Setup
 
@@ -40,7 +54,7 @@ Dashboard  <--  WebSocket  <--  Express Server  <--  Claude API (NEPQ Coach)
    ```bash
    cp .env.example .env
    ```
-   Edit `.env` and add your API keys:
+   Add your API keys to `.env`:
    ```
    DEEPGRAM_API_KEY=your_key_here
    ANTHROPIC_API_KEY=your_key_here
@@ -54,11 +68,19 @@ Dashboard  <--  WebSocket  <--  Express Server  <--  Claude API (NEPQ Coach)
 
 4. **Open the dashboard:** Go to `http://localhost:5173`
 
-5. **Join a meeting:** Paste a Google Meet URL and click "Join Meeting"
+5. **Start coaching:** Click "Start Coaching", select your Google Meet tab, and check "Share audio"
+
+## Deploying Online
+
+To use this fully online (no local setup), deploy the server to any Node.js host:
+
+- **Railway / Render / Fly.io** — Deploy the `server/` directory, set environment variables
+- **Vercel** — Deploy the `client/` as a static site, point the API proxy to your server URL
+- Or run both behind a single service on Railway/Render
 
 ## NEPQ Framework Stages
 
-The AI coach identifies which stage of the NEPQ framework the conversation is in and suggests appropriate questions:
+The AI coach identifies which stage of the NEPQ framework the conversation is in:
 
 | Stage | Purpose | Example |
 |-------|---------|---------|
@@ -71,22 +93,19 @@ The AI coach identifies which stage of the NEPQ framework the conversation is in
 
 ## Tech Stack
 
-- **Server:** Node.js, Express, WebSocket (ws)
-- **Meet Bot:** Puppeteer (headless Chrome)
+- **Frontend:** React + Vite (browser audio capture via `getDisplayMedia`)
+- **Server:** Node.js, Express, WebSocket
 - **Transcription:** Deepgram Nova-2 (real-time streaming)
 - **AI Coaching:** Claude API (Anthropic)
-- **Frontend:** React + Vite
 
 ## Project Structure
 
 ```
 nepq-coach/
 ├── server/
-│   ├── index.js              # Express server + API routes
-│   ├── meetBot.js            # Puppeteer Google Meet bot
+│   ├── index.js              # Express + WebSocket server
 │   ├── transcription.js      # Deepgram real-time STT
-│   ├── coachingEngine.js     # Claude API NEPQ coaching
-│   └── websocket.js          # WebSocket manager
+│   └── coachingEngine.js     # Claude API NEPQ coaching
 ├── client/
 │   ├── src/
 │   │   ├── App.jsx           # Main app
@@ -95,7 +114,8 @@ nepq-coach/
 │   │   │   ├── Transcript.jsx
 │   │   │   └── Suggestions.jsx
 │   │   └── hooks/
-│   │       └── useWebSocket.js
+│   │       ├── useWebSocket.js
+│   │       └── useAudioCapture.js
 │   └── index.html
 ├── .env.example
 └── package.json
@@ -103,7 +123,8 @@ nepq-coach/
 
 ## Notes
 
-- The bot joins as a visible participant named "NEPQ Coach (AI Assistant)" - your prospect will see it
-- For best results, ensure the meeting audio is clear
+- **No bot joins your call** — audio is captured from your browser, not from a bot participant
+- **Chrome/Edge required** — `getDisplayMedia` with audio sharing is a Chromium feature
+- **"Share audio" checkbox** — You must check this when the browser asks which tab to share, otherwise no audio is captured
 - The AI suggestions update every ~3 seconds to avoid overwhelming you
-- Conversation history is kept in memory (resets when you leave)
+- Conversation history is kept in memory (resets when you stop)

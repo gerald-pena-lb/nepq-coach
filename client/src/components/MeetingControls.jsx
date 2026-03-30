@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 
 const styles = {
   container: {
@@ -15,18 +15,16 @@ const styles = {
     color: "#818cf8",
     whiteSpace: "nowrap",
   },
-  input: {
-    flex: 1,
-    padding: "10px 16px",
-    borderRadius: "8px",
-    border: "1px solid #3a3a4a",
-    background: "#0f0f13",
-    color: "#e4e4e7",
-    fontSize: "14px",
-    outline: "none",
+  subtitle: {
+    fontSize: "12px",
+    color: "#52525b",
+    whiteSpace: "nowrap",
   },
-  joinBtn: {
-    padding: "10px 24px",
+  spacer: {
+    flex: 1,
+  },
+  startBtn: {
+    padding: "10px 28px",
     borderRadius: "8px",
     border: "none",
     background: "#818cf8",
@@ -35,8 +33,11 @@ const styles = {
     fontWeight: "600",
     cursor: "pointer",
     whiteSpace: "nowrap",
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
   },
-  leaveBtn: {
+  stopBtn: {
     padding: "10px 24px",
     borderRadius: "8px",
     border: "1px solid #ef4444",
@@ -48,11 +49,11 @@ const styles = {
     whiteSpace: "nowrap",
   },
   status: {
-    fontSize: "12px",
-    color: "#71717a",
+    fontSize: "13px",
+    color: "#a1a1aa",
     display: "flex",
     alignItems: "center",
-    gap: "6px",
+    gap: "8px",
     whiteSpace: "nowrap",
   },
   dot: (color) => ({
@@ -61,59 +62,79 @@ const styles = {
     borderRadius: "50%",
     background: color,
     display: "inline-block",
+    flexShrink: 0,
   }),
+  pulse: {
+    width: "8px",
+    height: "8px",
+    borderRadius: "50%",
+    background: "#22c55e",
+    display: "inline-block",
+    flexShrink: 0,
+    animation: "pulse 1.5s infinite",
+  },
+  steps: {
+    fontSize: "12px",
+    color: "#71717a",
+    lineHeight: "1.6",
+  },
 };
 
-export default function MeetingControls({ status, onJoin, onLeave, isInMeeting }) {
-  const [meetingUrl, setMeetingUrl] = useState("");
+const statusColors = {
+  active: "#22c55e",
+  ready: "#22c55e",
+  starting: "#eab308",
+  sharing: "#eab308",
+  error: "#ef4444",
+  stopped: "#71717a",
+};
 
-  const handleJoin = () => {
-    if (meetingUrl.trim()) {
-      onJoin(meetingUrl.trim());
-    }
-  };
-
-  const statusColor = {
-    connected: "#22c55e",
-    capturing: "#22c55e",
-    joining: "#eab308",
-    launching: "#eab308",
-    navigating: "#eab308",
-    warning: "#f97316",
-    error: "#ef4444",
-    disconnected: "#71717a",
-  };
-
+export default function MeetingControls({ status, onStart, onStop, isActive, isCapturing }) {
   return (
     <div style={styles.container}>
-      <div style={styles.logo}>NEPQ Coach</div>
+      <div>
+        <div style={styles.logo}>NEPQ Coach</div>
+        <div style={styles.subtitle}>Real-time AI sales coaching</div>
+      </div>
 
-      {!isInMeeting ? (
-        <>
-          <input
-            style={styles.input}
-            type="text"
-            placeholder="Paste your Google Meet link here..."
-            value={meetingUrl}
-            onChange={(e) => setMeetingUrl(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleJoin()}
-          />
-          <button style={styles.joinBtn} onClick={handleJoin}>
-            Join Meeting
-          </button>
-        </>
-      ) : (
-        <>
-          <div style={styles.status}>
-            <span style={styles.dot(statusColor[status?.status] || "#71717a")} />
-            {status?.message || "Connected"}
-          </div>
-          <div style={{ flex: 1 }} />
-          <button style={styles.leaveBtn} onClick={onLeave}>
-            Leave Meeting
-          </button>
-        </>
+      <div style={styles.spacer} />
+
+      {isActive && status && (
+        <div style={styles.status}>
+          {isCapturing ? (
+            <span style={styles.pulse} />
+          ) : (
+            <span style={styles.dot(statusColors[status?.status] || "#71717a")} />
+          )}
+          {status?.message}
+        </div>
       )}
+
+      {!isActive ? (
+        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+          <div style={styles.steps}>
+            1. Open your Google Meet in another tab &nbsp;→&nbsp; 2. Click Start &nbsp;→&nbsp; 3. Share that tab with audio
+          </div>
+          <button style={styles.startBtn} onClick={onStart}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 8v8M8 12h8" />
+            </svg>
+            Start Coaching
+          </button>
+        </div>
+      ) : (
+        <button style={styles.stopBtn} onClick={onStop}>
+          Stop
+        </button>
+      )}
+
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+      `}</style>
     </div>
   );
 }

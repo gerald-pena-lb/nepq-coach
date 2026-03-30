@@ -2,8 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import http from "http";
-import { WebSocketManager } from "./websocket.js";
-import { MeetBot } from "./meetBot.js";
+import { WebSocketServer } from "ws";
 import { TranscriptionService } from "./transcription.js";
 import { CoachingEngine } from "./coachingEngine.js";
 
@@ -12,125 +11,115 @@ app.use(cors());
 app.use(express.json());
 
 const server = http.createServer(app);
-const wsManager = new WebSocketManager(server);
+const wss = new WebSocketServer({ server });
 
-let activeMeetBot = null;
-let activeTranscription = null;
-let activeCoaching = null;
+// Track active sessions per WebSocket client
+const sessions = new Map();
 
-// Health check
 app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", meeting: activeMeetBot ? "active" : "idle" });
+  res.json({ status: "ok", activeSessions: sessions.size });
 });
 
-// Join a meeting
-app.post("/api/meeting/join", async (req, res) => {
-  const { meetingUrl } = req.body;
+wss.on("connection", (ws) => {
+  console.log("[WS] Client connected");
 
-  if (!meetingUrl) {
-    return res.status(400).json({ error: "meetingUrl is required" });
+  let transcription = null;
+  let coaching = null;
+
+  const send = (event, data) => {
+    if (ws.readyState === 1) {
+      ws.send(JSON.stringify({ event, data }));
+    }
+  };
+
+  ws.on("message", async (message) => {
+    // Binary data = audio chunk from browser
+    if (typeof message !== "string" && !(message instanceof String)) {
+      if (transcription) {
+        transcription.sendAudio(message);
+      }
+      return;
+    }
+
+    // JSON control messages
+    let parsed;
+    try {
+      parsed = JSON.parse(message);
+    } catch {
+      return;
+    }
+
+    if (parsed.event === "start") {
+      // Client wants to start a coaching session
+      if (transcription) {
+        send("error", { message: "Session already active. Stop first." });
+        return;
+      }
+
+      try {
+        coaching = new CoachingEngine({
+          apiKey: process.env.ANTHROPIC_API_KEY,
+        });
+
+        transcription = new TranscriptionService({
+          apiKey: process.env.DEEPGRAM_API_KEY,
+          onTranscript: async (transcript) => {
+            send("transcript", transcript);
+
+            if (transcript.isFinal && transcript.text) {
+              coaching.addTranscript(transcript);
+              const suggestion = await coaching.getSuggestion();
+              if (suggestion) {
+                send("suggestion", suggestion);
+              }
+            }
+          },
+          onError: (error) => {
+            send("error", { message: `Transcription error: ${error}` });
+          },
+        });
+
+        await transcription.start();
+        sessions.set(ws, { transcription, coaching });
+        send("status", { status: "ready", message: "Ready — share your meeting tab audio to begin" });
+        console.log("[Session] Started. Waiting for audio...");
+      } catch (err) {
+        console.error("[Session] Start failed:", err);
+        send("error", { message: `Failed to start session: ${err.message}` });
+        transcription = null;
+        coaching = null;
+      }
+    }
+
+    if (parsed.event === "stop") {
+      await cleanup();
+      send("status", { status: "stopped", message: "Coaching session ended" });
+    }
+  });
+
+  async function cleanup() {
+    if (transcription) {
+      await transcription.stop().catch(() => {});
+      transcription = null;
+    }
+    if (coaching) {
+      coaching.reset();
+      coaching = null;
+    }
+    sessions.delete(ws);
+    console.log("[Session] Cleaned up");
   }
 
-  if (!meetingUrl.includes("meet.google.com")) {
-    return res.status(400).json({ error: "Only Google Meet URLs are supported" });
-  }
-
-  if (activeMeetBot) {
-    return res.status(409).json({ error: "Already in a meeting. Leave first." });
-  }
-
-  try {
-    // Initialize coaching engine
-    activeCoaching = new CoachingEngine({
-      apiKey: process.env.ANTHROPIC_API_KEY,
-    });
-
-    // Initialize transcription
-    activeTranscription = new TranscriptionService({
-      apiKey: process.env.DEEPGRAM_API_KEY,
-      onTranscript: async (transcript) => {
-        // Send transcript to frontend
-        wsManager.sendTranscript(transcript);
-
-        // Feed to coaching engine
-        if (transcript.isFinal && transcript.text) {
-          activeCoaching.addTranscript(transcript);
-
-          // Get AI suggestion
-          const suggestion = await activeCoaching.getSuggestion();
-          if (suggestion) {
-            wsManager.sendSuggestion(suggestion);
-          }
-        }
-      },
-      onError: (error) => {
-        wsManager.sendError(`Transcription error: ${error}`);
-      },
-    });
-
-    // Start transcription connection
-    await activeTranscription.start();
-
-    // Initialize and join with the bot
-    activeMeetBot = new MeetBot({
-      onAudioData: (buffer) => {
-        if (activeTranscription) {
-          activeTranscription.sendAudio(buffer);
-        }
-      },
-      onStatusChange: (status, message) => {
-        console.log(`[Meeting] ${status}: ${message}`);
-        wsManager.sendStatus(status, message);
-      },
-    });
-
-    // Don't await the full join - it takes time. Respond immediately.
-    activeMeetBot.join(meetingUrl).catch((err) => {
-      console.error("[Meeting] Join failed:", err);
-      wsManager.sendError(`Failed to join meeting: ${err.message}`);
-      cleanup();
-    });
-
-    res.json({ status: "joining", message: "Bot is joining the meeting..." });
-  } catch (err) {
-    console.error("[Meeting] Setup failed:", err);
+  ws.on("close", () => {
+    console.log("[WS] Client disconnected");
     cleanup();
-    res.status(500).json({ error: err.message });
-  }
+  });
+
+  ws.on("error", (err) => {
+    console.error("[WS] Error:", err.message);
+    cleanup();
+  });
 });
-
-// Leave a meeting
-app.post("/api/meeting/leave", async (req, res) => {
-  if (!activeMeetBot) {
-    return res.status(404).json({ error: "Not in a meeting" });
-  }
-
-  await cleanup();
-  res.json({ status: "left", message: "Left the meeting" });
-});
-
-// Get conversation history
-app.get("/api/meeting/history", (req, res) => {
-  if (!activeCoaching) {
-    return res.json({ history: [] });
-  }
-  res.json({ history: activeCoaching.conversationHistory });
-});
-
-async function cleanup() {
-  if (activeMeetBot) {
-    await activeMeetBot.leave().catch(() => {});
-    activeMeetBot = null;
-  }
-  if (activeTranscription) {
-    await activeTranscription.stop().catch(() => {});
-    activeTranscription = null;
-  }
-  if (activeCoaching) {
-    activeCoaching.reset();
-    activeCoaching = null;
-  }
-}
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
