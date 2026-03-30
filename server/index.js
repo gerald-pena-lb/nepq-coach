@@ -29,6 +29,8 @@ wss.on("connection", (ws) => {
 
   let transcription = null;
   let coaching = null;
+  let audioChunkCount = 0;
+  let audioLogDone = false;
 
   const send = (event, data) => {
     if (ws.readyState === 1) {
@@ -39,6 +41,14 @@ wss.on("connection", (ws) => {
   ws.on("message", async (message) => {
     // Binary data = audio chunk from browser
     if (typeof message !== "string" && !(message instanceof String)) {
+      if (!audioLogDone) {
+        console.log("[Audio] Receiving audio chunks from browser, size:", message.length, "bytes");
+        audioLogDone = true;
+      }
+      audioChunkCount++;
+      if (audioChunkCount % 100 === 0) {
+        console.log("[Audio] Received", audioChunkCount, "chunks so far");
+      }
       if (transcription) {
         transcription.sendAudio(message);
       }

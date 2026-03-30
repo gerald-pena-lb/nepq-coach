@@ -109,10 +109,21 @@ export class TranscriptionService {
   }
 
   sendAudio(audioBuffer) {
-    if (!this.ready || this.ws?.readyState !== WebSocket.OPEN) return;
+    if (!this.ready || this.ws?.readyState !== WebSocket.OPEN) {
+      if (!this._loggedNotReady) {
+        console.log("[ElevenLabs STT] Not ready to send audio. ready:", this.ready, "wsState:", this.ws?.readyState);
+        this._loggedNotReady = true;
+      }
+      return;
+    }
 
     // Convert binary audio to base64 — ElevenLabs requires JSON-wrapped base64, NOT raw binary
     const base64Audio = Buffer.from(audioBuffer).toString("base64");
+
+    if (!this._loggedFirstSend) {
+      console.log("[ElevenLabs STT] Sending first audio chunk to ElevenLabs, base64 length:", base64Audio.length);
+      this._loggedFirstSend = true;
+    }
 
     this.ws.send(JSON.stringify({
       type: "input_audio_chunk",
