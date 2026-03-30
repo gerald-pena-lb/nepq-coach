@@ -117,13 +117,18 @@ export class TranscriptionService {
       return;
     }
 
+    const base64Audio = Buffer.from(audioBuffer).toString("base64");
+
     if (!this._loggedFirstSend) {
-      console.log("[ElevenLabs STT] Sending first audio chunk as raw binary, size:", audioBuffer.length || audioBuffer.byteLength, "bytes");
+      console.log("[ElevenLabs STT] Sending first audio chunk, base64 length:", base64Audio.length);
       this._loggedFirstSend = true;
     }
 
-    // Send raw binary PCM audio — ElevenLabs accepts binary frames directly
-    this.ws.send(Buffer.from(audioBuffer));
+    // ElevenLabs requires message_type (not type) and audio_base_64
+    this.ws.send(JSON.stringify({
+      message_type: "input_audio_chunk",
+      audio_base_64: base64Audio,
+    }));
   }
 
   async stop() {
