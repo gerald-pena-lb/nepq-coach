@@ -6,7 +6,7 @@ services:
     buildCommand: npm install && npm run build
     startCommand: npm start
     envVars:
-      - key: DEEPGRAM_API_KEY
+      - key: ELEVENLABS_API_KEY
         sync: false
       - key: ANTHROPIC_API_KEY
         sync: false

@@ -26,7 +26,7 @@ NEPQ Coach Web App (another tab)
         | WebSocket (binary audio stream)
         v
 Express Server
-   ├── Deepgram (real-time transcription)
+   ├── ElevenLabs Scribe (real-time transcription)
    └── Claude API (NEPQ coaching suggestions)
         |
         | WebSocket (JSON)
@@ -38,7 +38,7 @@ NEPQ Coach Web App (live dashboard)
 
 - **Node.js** 18+
 - **Chrome, Edge, or any Chromium browser** (for tab audio sharing via `getDisplayMedia`)
-- **Deepgram API key** — [Get one here](https://console.deepgram.com) (free tier available)
+- **ElevenLabs API key** — [Get one here](https://elevenlabs.io) (use your existing account)
 - **Anthropic API key** — [Get one here](https://console.anthropic.com)
 
 ## Setup
@@ -56,7 +56,7 @@ NEPQ Coach Web App (live dashboard)
    ```
    Add your API keys to `.env`:
    ```
-   DEEPGRAM_API_KEY=your_key_here
+   ELEVENLABS_API_KEY=your_key_here
    ANTHROPIC_API_KEY=your_key_here
    ```
 
@@ -79,7 +79,7 @@ NEPQ Coach Web App (live dashboard)
 3. Paste: `https://github.com/gerald-pena-lb/NEPQ-coach`
 4. Select branch `claude/ai-meeting-assistant-RnB35`
 5. In the **Secrets** tab (lock icon), add:
-   - `DEEPGRAM_API_KEY` — free at [console.deepgram.com](https://console.deepgram.com)
+   - `ELEVENLABS_API_KEY` — from your ElevenLabs account
    - `ANTHROPIC_API_KEY` — from [console.anthropic.com](https://console.anthropic.com)
 6. Click **Run** — Replit builds and starts the app
 7. Click the URL in the Webview panel to open your live app
@@ -91,7 +91,7 @@ NEPQ Coach Web App (live dashboard)
 3. Pick branch `claude/ai-meeting-assistant-RnB35`
 4. Set build command: `npm install && npm run build`
 5. Set start command: `npm start`
-6. Add environment variables (`DEEPGRAM_API_KEY`, `ANTHROPIC_API_KEY`)
+6. Add environment variables (`ELEVENLABS_API_KEY`, `ANTHROPIC_API_KEY`)
 7. Deploy — you get a free HTTPS URL
 
 ## NEPQ Framework Stages
@@ -111,7 +111,7 @@ The AI coach identifies which stage of the NEPQ framework the conversation is in
 
 - **Frontend:** React + Vite (browser audio capture via `getDisplayMedia`)
 - **Server:** Node.js, Express, WebSocket
-- **Transcription:** Deepgram Nova-2 (real-time streaming)
+- **Transcription:** ElevenLabs Scribe (real-time streaming STT)
 - **AI Coaching:** Claude API (Anthropic)
 
 ## Project Structure
@@ -120,7 +120,7 @@ The AI coach identifies which stage of the NEPQ framework the conversation is in
 nepq-coach/
 ├── server/
 │   ├── index.js              # Express + WebSocket server
-│   ├── transcription.js      # Deepgram real-time STT
+│   ├── transcription.js      # ElevenLabs real-time STT
 │   └── coachingEngine.js     # Claude API NEPQ coaching
 ├── client/
 │   ├── src/
