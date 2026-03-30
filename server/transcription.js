@@ -125,8 +125,7 @@ export class TranscriptionService {
     }
 
     this.ws.send(JSON.stringify({
-      type: "input_audio_chunk",
-      audio_base_64: base64Audio,
+      user_audio_chunk: base64Audio,
     }));
   }
 
