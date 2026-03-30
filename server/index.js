@@ -96,6 +96,9 @@ wss.on("connection", (ws) => {
       if (audioChunkCount === 1) {
         console.log("[Audio] First audio chunk received, size:", message.length, "bytes");
       }
+      if (audioChunkCount === 2 || audioChunkCount === 5 || audioChunkCount === 10) {
+        console.log("[Audio] Chunk #" + audioChunkCount + ", size:", message.length, "bytes");
+      }
       if (audioChunkCount % 100 === 0) {
         console.log("[Audio] Received", audioChunkCount, "chunks so far");
       }
