@@ -38,8 +38,8 @@ export function useAudioCapture({ onAudioData }) {
         }
       };
 
-      // Request data every 250ms for low latency
-      recorder.start(250);
+      // Request data every 1000ms for reliable chunks
+      recorder.start(1000);
 
       // Stop video tracks after a delay
       setTimeout(() => {
