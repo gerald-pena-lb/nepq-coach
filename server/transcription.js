@@ -18,7 +18,7 @@ export class TranscriptionService {
       utterance_end_ms: 1500,
       vad_events: true,
       encoding: "linear16",
-      sample_rate: 16000,
+      sample_rate: 48000,
       channels: 1,
     });
 
@@ -37,6 +37,11 @@ export class TranscriptionService {
 
       this.connection.on(LiveTranscriptionEvents.Transcript, (data) => {
         const transcript = data.channel?.alternatives?.[0]?.transcript;
+        // Log every transcript event, even empty ones
+        if (!this._loggedFirstTranscript) {
+          console.log("[Deepgram] First transcript event received. Text:", JSON.stringify(transcript), "is_final:", data.is_final);
+          this._loggedFirstTranscript = true;
+        }
         if (transcript && transcript.trim().length > 0) {
           console.log("[Deepgram] Transcript:", data.is_final ? "FINAL" : "interim", transcript.slice(0, 80));
           this.onTranscript({
@@ -58,8 +63,12 @@ export class TranscriptionService {
         });
       });
 
+      this.connection.on(LiveTranscriptionEvents.Metadata, (data) => {
+        console.log("[Deepgram] Metadata:", JSON.stringify(data).slice(0, 200));
+      });
+
       this.connection.on(LiveTranscriptionEvents.Error, (err) => {
-        console.error("[Deepgram] Error:", err);
+        console.error("[Deepgram] Error:", JSON.stringify(err).slice(0, 300));
         this.onError(err.message || "Transcription error");
         reject(err);
       });
