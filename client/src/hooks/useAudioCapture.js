@@ -3,8 +3,7 @@ import { useRef, useCallback, useState } from "react";
 export function useAudioCapture({ onAudioData }) {
   const [isCapturing, setIsCapturing] = useState(false);
   const streamRef = useRef(null);
-  const contextRef = useRef(null);
-  const processorRef = useRef(null);
+  const recorderRef = useRef(null);
   const onAudioDataRef = useRef(onAudioData);
   onAudioDataRef.current = onAudioData;
 
@@ -25,45 +24,24 @@ export function useAudioCapture({ onAudioData }) {
 
       audioTrack.onended = () => stop();
 
-      // Use DEFAULT sample rate — forcing 16kHz breaks getDisplayMedia in Chrome
-      const audioContext = new AudioContext();
-      contextRef.current = audioContext;
+      // Use MediaRecorder to capture audio as webm/opus chunks
+      const audioStream = new MediaStream([audioTrack]);
+      const recorder = new MediaRecorder(audioStream, {
+        mimeType: "audio/webm;codecs=opus",
+      });
+      recorderRef.current = recorder;
 
-      if (audioContext.state === "suspended") {
-        await audioContext.resume();
-      }
-
-      // Store sample rate so server knows what we're sending
-      window.__audioSampleRate = audioContext.sampleRate;
-      console.log("[AudioCapture] Sample rate:", audioContext.sampleRate);
-
-      const source = audioContext.createMediaStreamSource(new MediaStream([audioTrack]));
-      const processor = audioContext.createScriptProcessor(4096, 1, 1);
-      processorRef.current = processor;
-
-      let chunkCount = 0;
-      processor.onaudioprocess = (event) => {
-        const float32Data = event.inputBuffer.getChannelData(0);
-
-        // Convert float32 to int16
-        const int16Array = new Int16Array(float32Data.length);
-        for (let i = 0; i < float32Data.length; i++) {
-          const s = Math.max(-1, Math.min(1, float32Data[i]));
-          int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      recorder.ondataavailable = async (event) => {
+        if (event.data.size > 0) {
+          const buffer = await event.data.arrayBuffer();
+          onAudioDataRef.current(buffer);
         }
-
-        chunkCount++;
-        if (chunkCount <= 3 || chunkCount % 100 === 0) {
-          console.log("[AudioCapture] Chunk #" + chunkCount, "size:", int16Array.buffer.byteLength);
-        }
-
-        onAudioDataRef.current(int16Array.buffer);
       };
 
-      source.connect(processor);
-      processor.connect(audioContext.destination);
+      // Request data every 250ms for low latency
+      recorder.start(250);
 
-      // Stop video after audio pipeline is running
+      // Stop video tracks after a delay
       setTimeout(() => {
         stream.getVideoTracks().forEach(t => t.stop());
       }, 2000);
@@ -76,13 +54,9 @@ export function useAudioCapture({ onAudioData }) {
   }, []);
 
   const stop = useCallback(() => {
-    if (processorRef.current) {
-      processorRef.current.disconnect();
-      processorRef.current = null;
-    }
-    if (contextRef.current) {
-      contextRef.current.close().catch(() => {});
-      contextRef.current = null;
+    if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      recorderRef.current.stop();
+      recorderRef.current = null;
     }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());
