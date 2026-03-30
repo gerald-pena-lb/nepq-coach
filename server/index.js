@@ -2,7 +2,11 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import http from "http";
+import path from "path";
+import { fileURLToPath } from "url";
 import { WebSocketServer } from "ws";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { TranscriptionService } from "./transcription.js";
 import { CoachingEngine } from "./coachingEngine.js";
 
@@ -119,6 +123,13 @@ wss.on("connection", (ws) => {
     console.error("[WS] Error:", err.message);
     cleanup();
   });
+});
+
+// In production, serve the built React frontend
+const clientDist = path.join(__dirname, "..", "client", "dist");
+app.use(express.static(clientDist));
+app.get("*", (req, res) => {
+  res.sendFile(path.join(clientDist, "index.html"));
 });
 
 const PORT = process.env.PORT || 3001;

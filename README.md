@@ -70,13 +70,20 @@ NEPQ Coach Web App (live dashboard)
 
 5. **Start coaching:** Click "Start Coaching", select your Google Meet tab, and check "Share audio"
 
-## Deploying Online
+## Deploy Online (Render — Free Tier)
 
-To use this fully online (no local setup), deploy the server to any Node.js host:
+One-click deploy with no local setup:
 
-- **Railway / Render / Fly.io** — Deploy the `server/` directory, set environment variables
-- **Vercel** — Deploy the `client/` as a static site, point the API proxy to your server URL
-- Or run both behind a single service on Railway/Render
+1. Go to [**render.com**](https://render.com) and sign up (free)
+2. Click **New → Web Service → Connect your GitHub repo** (`gerald-pena-lb/NEPQ-coach`)
+3. Select branch `claude/ai-meeting-assistant-RnB35`
+4. Render auto-detects the config. Just add your environment variables:
+   - `DEEPGRAM_API_KEY` — get free at [console.deepgram.com](https://console.deepgram.com)
+   - `ANTHROPIC_API_KEY` — get at [console.anthropic.com](https://console.anthropic.com)
+5. Click **Deploy** — you'll get a URL like `https://nepq-coach.onrender.com`
+6. Open that URL in Chrome/Edge and start coaching!
+
+> **Important:** The deployed URL must use **HTTPS** for tab audio sharing to work. Render provides this automatically.
 
 ## NEPQ Framework Stages
 

@@ -35,7 +35,8 @@ const styles = {
   }),
 };
 
-const WS_URL = `ws://${window.location.hostname}:${window.location.port || 3001}`;
+const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+const WS_URL = `${wsProtocol}//${window.location.host}`;
 
 export default function App() {
   const [transcripts, setTranscripts] = useState([]);
