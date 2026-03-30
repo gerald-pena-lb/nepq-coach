@@ -10,50 +10,34 @@ export function useAudioCapture({ onAudioData }) {
 
   const start = useCallback(async () => {
     try {
-      console.log("[AudioCapture] Requesting getDisplayMedia...");
-
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
-        audio: {
-          sampleRate: 16000,
-          channelCount: 1,
-        },
+        audio: true,
       });
-
-      console.log("[AudioCapture] Got stream. Audio tracks:", stream.getAudioTracks().length);
 
       streamRef.current = stream;
 
-      // Don't stop video tracks immediately — it can kill the audio stream in some browsers
-      // Just ignore the video data
-
       const audioTrack = stream.getAudioTracks()[0];
       if (!audioTrack) {
-        // Stop everything if no audio
         stream.getTracks().forEach(t => t.stop());
-        throw new Error("No audio track — make sure you checked 'Share audio' when selecting the tab");
+        throw new Error("No audio track — make sure you checked 'Share audio'");
       }
 
-      console.log("[AudioCapture] Audio track:", audioTrack.label, "settings:", JSON.stringify(audioTrack.getSettings()));
+      audioTrack.onended = () => stop();
 
-      audioTrack.onended = () => {
-        console.log("[AudioCapture] Audio track ended");
-        stop();
-      };
-
-      // Create AudioContext at 16kHz to match what ElevenLabs expects
-      const audioContext = new AudioContext({ sampleRate: 16000 });
+      // Use DEFAULT sample rate — forcing 16kHz breaks getDisplayMedia in Chrome
+      const audioContext = new AudioContext();
       contextRef.current = audioContext;
-
-      console.log("[AudioCapture] AudioContext state:", audioContext.state, "sampleRate:", audioContext.sampleRate);
 
       if (audioContext.state === "suspended") {
         await audioContext.resume();
-        console.log("[AudioCapture] Resumed AudioContext");
       }
 
-      const source = audioContext.createMediaStreamSource(new MediaStream([audioTrack]));
+      // Store sample rate so server knows what we're sending
+      window.__audioSampleRate = audioContext.sampleRate;
+      console.log("[AudioCapture] Sample rate:", audioContext.sampleRate);
 
+      const source = audioContext.createMediaStreamSource(new MediaStream([audioTrack]));
       const processor = audioContext.createScriptProcessor(4096, 1, 1);
       processorRef.current = processor;
 
@@ -61,16 +45,7 @@ export function useAudioCapture({ onAudioData }) {
       processor.onaudioprocess = (event) => {
         const float32Data = event.inputBuffer.getChannelData(0);
 
-        // Check if there's actual audio data (not all zeros)
-        let hasAudio = false;
-        for (let i = 0; i < float32Data.length; i += 100) {
-          if (Math.abs(float32Data[i]) > 0.0001) {
-            hasAudio = true;
-            break;
-          }
-        }
-
-        // Convert float32 [-1, 1] to int16 [-32768, 32767]
+        // Convert float32 to int16
         const int16Array = new Int16Array(float32Data.length);
         for (let i = 0; i < float32Data.length; i++) {
           const s = Math.max(-1, Math.min(1, float32Data[i]));
@@ -78,24 +53,21 @@ export function useAudioCapture({ onAudioData }) {
         }
 
         chunkCount++;
-        if (chunkCount === 1 || chunkCount % 50 === 0) {
-          console.log("[AudioCapture] Chunk #" + chunkCount, "size:", int16Array.buffer.byteLength, "bytes, hasAudio:", hasAudio);
+        if (chunkCount <= 3 || chunkCount % 100 === 0) {
+          console.log("[AudioCapture] Chunk #" + chunkCount, "size:", int16Array.buffer.byteLength);
         }
 
-        // Always send — even silence keeps the connection alive
         onAudioDataRef.current(int16Array.buffer);
       };
 
       source.connect(processor);
       processor.connect(audioContext.destination);
 
-      // Now safe to stop video tracks after audio pipeline is established
+      // Stop video after audio pipeline is running
       setTimeout(() => {
         stream.getVideoTracks().forEach(t => t.stop());
-        console.log("[AudioCapture] Video tracks stopped (delayed)");
       }, 2000);
 
-      console.log("[AudioCapture] Pipeline connected");
       setIsCapturing(true);
     } catch (err) {
       console.error("[AudioCapture] Failed:", err);
@@ -117,7 +89,6 @@ export function useAudioCapture({ onAudioData }) {
       streamRef.current = null;
     }
     setIsCapturing(false);
-    console.log("[AudioCapture] Stopped");
   }, []);
 
   return { isCapturing, start, stop };
