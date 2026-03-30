@@ -6,8 +6,9 @@ export class TranscriptionService {
     this.ws = null;
     this.onTranscript = onTranscript;
     this.onError = onError;
-    this.keepAliveInterval = null;
     this.ready = false;
+    this._loggedFirstSend = false;
+    this._loggedNotReady = false;
   }
 
   async start() {
@@ -27,9 +28,10 @@ export class TranscriptionService {
       this.ws.on("message", (data) => {
         try {
           const msg = JSON.parse(data.toString());
+          const msgType = msg.message_type || msg.type;
 
           // Session ready
-          if (msg.type === "session_started") {
+          if (msgType === "session_started") {
             console.log("[ElevenLabs STT] Session started:", msg.session_id);
             this.ready = true;
             resolve();
@@ -37,7 +39,8 @@ export class TranscriptionService {
           }
 
           // Final transcript (auto-committed by VAD)
-          if (msg.type === "committed_transcript") {
+          if (msgType === "committed_transcript") {
+            console.log("[ElevenLabs STT] Committed transcript:", msg.text?.slice(0, 100));
             if (msg.text && msg.text.trim().length > 0) {
               this.onTranscript({
                 text: msg.text,
@@ -51,7 +54,7 @@ export class TranscriptionService {
           }
 
           // Partial/interim transcript
-          if (msg.type === "partial_transcript") {
+          if (msgType === "partial_transcript") {
             if (msg.text && msg.text.trim().length > 0) {
               this.onTranscript({
                 text: msg.text,
@@ -65,7 +68,7 @@ export class TranscriptionService {
           }
 
           // Committed transcript with timestamps
-          if (msg.type === "committed_transcript_with_timestamps") {
+          if (msgType === "committed_transcript_with_timestamps") {
             if (msg.text && msg.text.trim().length > 0) {
               this.onTranscript({
                 text: msg.text,
@@ -78,10 +81,8 @@ export class TranscriptionService {
             return;
           }
 
-          // Log any other message types for debugging
-          if (msg.type !== "session_started") {
-            console.log("[ElevenLabs STT] Message:", msg.type, JSON.stringify(msg).slice(0, 200));
-          }
+          // Log any unhandled message types
+          console.log("[ElevenLabs STT] Unhandled:", msgType, JSON.stringify(msg).slice(0, 200));
         } catch (err) {
           console.error("[ElevenLabs STT] Parse error:", err.message);
         }
@@ -96,7 +97,6 @@ export class TranscriptionService {
       this.ws.on("close", (code, reason) => {
         console.log("[ElevenLabs STT] Closed:", code, reason?.toString());
         this.ready = false;
-        this._cleanup();
       });
 
       // Timeout if session doesn't start within 10s
@@ -111,17 +111,16 @@ export class TranscriptionService {
   sendAudio(audioBuffer) {
     if (!this.ready || this.ws?.readyState !== WebSocket.OPEN) {
       if (!this._loggedNotReady) {
-        console.log("[ElevenLabs STT] Not ready to send audio. ready:", this.ready, "wsState:", this.ws?.readyState);
+        console.log("[ElevenLabs STT] Not ready. ready:", this.ready, "wsState:", this.ws?.readyState);
         this._loggedNotReady = true;
       }
       return;
     }
 
-    // Convert binary audio to base64 — ElevenLabs requires JSON-wrapped base64, NOT raw binary
     const base64Audio = Buffer.from(audioBuffer).toString("base64");
 
     if (!this._loggedFirstSend) {
-      console.log("[ElevenLabs STT] Sending first audio chunk to ElevenLabs, base64 length:", base64Audio.length);
+      console.log("[ElevenLabs STT] Sending first audio chunk, base64 length:", base64Audio.length);
       this._loggedFirstSend = true;
     }
 
@@ -131,15 +130,7 @@ export class TranscriptionService {
     }));
   }
 
-  _cleanup() {
-    if (this.keepAliveInterval) {
-      clearInterval(this.keepAliveInterval);
-      this.keepAliveInterval = null;
-    }
-  }
-
   async stop() {
-    this._cleanup();
     this.ready = false;
     if (this.ws) {
       try {
