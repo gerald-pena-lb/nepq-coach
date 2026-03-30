@@ -7,10 +7,11 @@ export class TranscriptionService {
     this.onTranscript = onTranscript;
     this.onError = onError;
     this.keepAliveInterval = null;
+    this.ready = false;
   }
 
   async start() {
-    const url = "wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v1&language_code=en";
+    const url = "wss://api.elevenlabs.io/v1/speech-to-text/realtime";
 
     return new Promise((resolve, reject) => {
       this.ws = new WebSocket(url, {
@@ -20,82 +21,103 @@ export class TranscriptionService {
       });
 
       this.ws.on("open", () => {
-        console.log("[ElevenLabs STT] Connection opened");
-
-        // Send initial config
-        this.ws.send(JSON.stringify({
-          type: "config",
-          encoding: "pcm_16000",
-          sample_rate: 16000,
-        }));
-
-        // Keep alive every 10s
-        this.keepAliveInterval = setInterval(() => {
-          if (this.ws?.readyState === WebSocket.OPEN) {
-            this.ws.ping();
-          }
-        }, 10000);
-
-        resolve();
+        console.log("[ElevenLabs STT] WebSocket opened, waiting for session_started...");
       });
 
       this.ws.on("message", (data) => {
         try {
           const msg = JSON.parse(data.toString());
 
-          if (msg.type === "transcription" || msg.type === "transcript") {
-            const text = msg.text || msg.channel?.alternatives?.[0]?.transcript || "";
-            if (text.trim().length > 0) {
-              const isFinal = msg.type === "transcription" ||
-                msg.is_final === true ||
-                msg.committed === true;
-
-              this.onTranscript({
-                text: text,
-                isFinal: isFinal,
-                speaker: msg.speaker || 0,
-                confidence: msg.confidence || 0,
-                timestamp: Date.now(),
-              });
-            }
+          // Session ready
+          if (msg.type === "session_started") {
+            console.log("[ElevenLabs STT] Session started:", msg.session_id);
+            this.ready = true;
+            resolve();
+            return;
           }
 
-          // Handle partial/interim results
-          if (msg.type === "partial_transcription" || msg.type === "partial_transcript") {
-            const text = msg.text || "";
-            if (text.trim().length > 0) {
+          // Final transcript (auto-committed by VAD)
+          if (msg.type === "committed_transcript") {
+            if (msg.text && msg.text.trim().length > 0) {
               this.onTranscript({
-                text: text,
-                isFinal: false,
-                speaker: msg.speaker || 0,
-                confidence: msg.confidence || 0,
+                text: msg.text,
+                isFinal: true,
+                speaker: 0,
+                confidence: 1,
                 timestamp: Date.now(),
               });
             }
+            return;
+          }
+
+          // Partial/interim transcript
+          if (msg.type === "partial_transcript") {
+            if (msg.text && msg.text.trim().length > 0) {
+              this.onTranscript({
+                text: msg.text,
+                isFinal: false,
+                speaker: 0,
+                confidence: 0.5,
+                timestamp: Date.now(),
+              });
+            }
+            return;
+          }
+
+          // Committed transcript with timestamps
+          if (msg.type === "committed_transcript_with_timestamps") {
+            if (msg.text && msg.text.trim().length > 0) {
+              this.onTranscript({
+                text: msg.text,
+                isFinal: true,
+                speaker: 0,
+                confidence: 1,
+                timestamp: Date.now(),
+              });
+            }
+            return;
+          }
+
+          // Log any other message types for debugging
+          if (msg.type !== "session_started") {
+            console.log("[ElevenLabs STT] Message:", msg.type, JSON.stringify(msg).slice(0, 200));
           }
         } catch (err) {
-          // Ignore non-JSON messages
+          console.error("[ElevenLabs STT] Parse error:", err.message);
         }
       });
 
       this.ws.on("error", (err) => {
         console.error("[ElevenLabs STT] Error:", err.message);
         this.onError(err.message || "Transcription error");
-        reject(err);
+        if (!this.ready) reject(err);
       });
 
       this.ws.on("close", (code, reason) => {
-        console.log("[ElevenLabs STT] Connection closed:", code, reason?.toString());
+        console.log("[ElevenLabs STT] Closed:", code, reason?.toString());
+        this.ready = false;
         this._cleanup();
       });
+
+      // Timeout if session doesn't start within 10s
+      setTimeout(() => {
+        if (!this.ready) {
+          reject(new Error("ElevenLabs STT connection timeout"));
+        }
+      }, 10000);
     });
   }
 
   sendAudio(audioBuffer) {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      // Send raw PCM audio as binary
-      this.ws.send(audioBuffer);
-    }
+    if (!this.ready || this.ws?.readyState !== WebSocket.OPEN) return;
+
+    // Convert binary audio to base64 — ElevenLabs requires JSON-wrapped base64, NOT raw binary
+    const base64Audio = Buffer.from(audioBuffer).toString("base64");
+
+    this.ws.send(JSON.stringify({
+      type: "input_audio_chunk",
+      audio_base_64: base64Audio,
+    }));
   }
 
   _cleanup() {
@@ -107,8 +129,8 @@ export class TranscriptionService {
 
   async stop() {
     this._cleanup();
+    this.ready = false;
     if (this.ws) {
-      // Send end-of-stream signal
       try {
         this.ws.send(JSON.stringify({ type: "close" }));
       } catch { /* ignore */ }
