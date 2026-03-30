@@ -106,7 +106,7 @@ export class CoachingEngine {
 
     try {
       const response = await this.client.messages.create({
-        model: "claude-sonnet-4-5-20241022",
+        model: "claude-sonnet-4-5-20250514",
         max_tokens: 500,
         system: NEPQ_SYSTEM_PROMPT,
         messages: [
@@ -133,7 +133,7 @@ export class CoachingEngine {
         };
       }
     } catch (err) {
-      console.error("[Coaching] Error getting suggestion:", err.message);
+      console.error("[Coaching] Error getting suggestion:", err.message, err.status || "", err.error?.message || "");
       return null;
     }
   }

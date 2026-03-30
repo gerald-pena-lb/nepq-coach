@@ -72,8 +72,10 @@ wss.on("connection", (ws) => {
 
             if (transcript.isFinal && transcript.text) {
               coaching.addTranscript(transcript);
+              console.log("[Coaching] Transcript added, pending:", coaching.pendingTranscript.length, "chars");
               const suggestion = await coaching.getSuggestion();
               if (suggestion) {
+                console.log("[Coaching] Suggestion generated:", suggestion.stage);
                 send("suggestion", suggestion);
               }
             }
