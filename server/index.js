@@ -5,10 +5,10 @@ import http from "http";
 import path from "path";
 import { fileURLToPath } from "url";
 import { WebSocketServer } from "ws";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { TranscriptionService } from "./transcription.js";
 import { CoachingEngine } from "./coachingEngine.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 app.use(cors());
@@ -17,7 +17,6 @@ app.use(express.json());
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-// Track active sessions per WebSocket client
 const sessions = new Map();
 
 app.get("/api/health", (req, res) => {
@@ -29,8 +28,8 @@ wss.on("connection", (ws) => {
 
   let transcription = null;
   let coaching = null;
+  let starting = false;
   let audioChunkCount = 0;
-  let audioLogDone = false;
 
   const send = (event, data) => {
     if (ws.readyState === 1) {
@@ -38,17 +37,69 @@ wss.on("connection", (ws) => {
     }
   };
 
+  async function ensureSession() {
+    if (transcription || starting) return;
+    starting = true;
+
+    try {
+      console.log("[Session] Auto-starting session on first audio...");
+
+      coaching = new CoachingEngine({
+        apiKey: process.env.ANTHROPIC_API_KEY,
+      });
+
+      transcription = new TranscriptionService({
+        apiKey: process.env.ELEVENLABS_API_KEY,
+        onTranscript: async (transcript) => {
+          send("transcript", transcript);
+
+          if (transcript.isFinal && transcript.text) {
+            coaching.addTranscript(transcript);
+            console.log("[Coaching] Transcript added, pending:", coaching.pendingTranscript.length, "chars");
+            const suggestion = await coaching.getSuggestion();
+            if (suggestion) {
+              console.log("[Coaching] Suggestion generated:", suggestion.stage);
+              send("suggestion", suggestion);
+            }
+          }
+        },
+        onError: (error) => {
+          console.error("[Session] Transcription error:", error);
+          send("error", { message: `Transcription error: ${error}` });
+        },
+      });
+
+      await transcription.start();
+      sessions.set(ws, { transcription, coaching });
+      send("status", { status: "ready", message: "Listening \u2014 coaching is live" });
+      console.log("[Session] Started successfully, ready for audio");
+    } catch (err) {
+      console.error("[Session] Start failed:", err.message);
+      send("error", { message: `Failed to start: ${err.message}` });
+      transcription = null;
+      coaching = null;
+    } finally {
+      starting = false;
+    }
+  }
+
   ws.on("message", async (message) => {
     // Binary data = audio chunk from browser
-    if (typeof message !== "string" && !(message instanceof String)) {
-      if (!audioLogDone) {
-        console.log("[Audio] Receiving audio chunks from browser, size:", message.length, "bytes");
-        audioLogDone = true;
-      }
+    if (Buffer.isBuffer(message) || message instanceof ArrayBuffer || (typeof message !== "string")) {
       audioChunkCount++;
+
+      // Auto-start session on first audio chunk
+      if (!transcription && !starting) {
+        await ensureSession();
+      }
+
+      if (audioChunkCount === 1) {
+        console.log("[Audio] First audio chunk received, size:", message.length, "bytes");
+      }
       if (audioChunkCount % 100 === 0) {
         console.log("[Audio] Received", audioChunkCount, "chunks so far");
       }
+
       if (transcription) {
         transcription.sendAudio(message);
       }
@@ -56,54 +107,19 @@ wss.on("connection", (ws) => {
     }
 
     // JSON control messages
+    const str = typeof message === "string" ? message : message.toString();
     let parsed;
     try {
-      parsed = JSON.parse(message);
+      parsed = JSON.parse(str);
     } catch {
       return;
     }
 
+    console.log("[WS] Control message:", parsed.event);
+
     if (parsed.event === "start") {
-      // Client wants to start a coaching session
-      if (transcription) {
-        send("error", { message: "Session already active. Stop first." });
-        return;
-      }
-
-      try {
-        coaching = new CoachingEngine({
-          apiKey: process.env.ANTHROPIC_API_KEY,
-        });
-
-        transcription = new TranscriptionService({
-          apiKey: process.env.ELEVENLABS_API_KEY,
-          onTranscript: async (transcript) => {
-            send("transcript", transcript);
-
-            if (transcript.isFinal && transcript.text) {
-              coaching.addTranscript(transcript);
-              console.log("[Coaching] Transcript added, pending:", coaching.pendingTranscript.length, "chars");
-              const suggestion = await coaching.getSuggestion();
-              if (suggestion) {
-                console.log("[Coaching] Suggestion generated:", suggestion.stage);
-                send("suggestion", suggestion);
-              }
-            }
-          },
-          onError: (error) => {
-            send("error", { message: `Transcription error: ${error}` });
-          },
-        });
-
-        await transcription.start();
-        sessions.set(ws, { transcription, coaching });
-        send("status", { status: "ready", message: "Ready — share your meeting tab audio to begin" });
-        console.log("[Session] Started. Waiting for audio...");
-      } catch (err) {
-        console.error("[Session] Start failed:", err);
-        send("error", { message: `Failed to start session: ${err.message}` });
-        transcription = null;
-        coaching = null;
+      if (!transcription && !starting) {
+        await ensureSession();
       }
     }
 
@@ -123,6 +139,8 @@ wss.on("connection", (ws) => {
       coaching = null;
     }
     sessions.delete(ws);
+    audioChunkCount = 0;
+    starting = false;
     console.log("[Session] Cleaned up");
   }
 
@@ -137,7 +155,7 @@ wss.on("connection", (ws) => {
   });
 });
 
-// In production, serve the built React frontend
+// Serve static frontend in production
 const clientDist = path.join(__dirname, "..", "client", "dist");
 app.use(express.static(clientDist));
 app.get("*", (req, res) => {
