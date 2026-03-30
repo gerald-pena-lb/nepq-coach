@@ -14,13 +14,8 @@ export function useAudioCapture({ onAudioData }) {
     try {
       // Request tab audio sharing — user picks which tab to share
       const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: false,
-        audio: {
-          channelCount: 1,
-          sampleRate: 16000,
-        },
-        // Prefer audio-only sharing (Chrome 135+), fall back to video+audio
-        preferCurrentTab: false,
+        video: true,
+        audio: true,
       });
 
       streamRef.current = stream;

@@ -110,16 +110,18 @@ export default function MeetingControls({ status, onStart, onStop, isActive, isC
         </div>
       )}
 
+      {!isActive && status?.status === "error" && (
+        <div style={{ fontSize: "13px", color: "#ef4444" }}>
+          {status.message}
+        </div>
+      )}
+
       {!isActive ? (
         <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
           <div style={styles.steps}>
             1. Open your Google Meet in another tab &nbsp;→&nbsp; 2. Click Start &nbsp;→&nbsp; 3. Share that tab with audio
           </div>
           <button style={styles.startBtn} onClick={onStart}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <path d="M12 8v8M8 12h8" />
-            </svg>
             Start Coaching
           </button>
         </div>
