@@ -70,24 +70,29 @@ NEPQ Coach Web App (live dashboard)
 
 5. **Start coaching:** Click "Start Coaching", select your Google Meet tab, and check "Share audio"
 
-## Deploy Online (Glitch — 100% Free)
+## Deploy Online (Free Options)
 
-No credit card. No installs. Fully online:
+### Option 1: Replit (Recommended — 100% Free)
 
-1. Go to [**glitch.com**](https://glitch.com) and sign up (free — use your GitHub account)
-2. Click **New Project → Import from GitHub**
-3. Paste: `gerald-pena-lb/NEPQ-coach`
-4. Once imported, click the `.env` file in the Glitch editor and add:
-   ```
-   DEEPGRAM_API_KEY=your_key_here
-   ANTHROPIC_API_KEY=your_key_here
-   ```
-   - Deepgram key (free): [console.deepgram.com](https://console.deepgram.com)
-   - Anthropic key: [console.anthropic.com](https://console.anthropic.com)
-5. Glitch auto-builds and runs. Click **Preview → Open in new window**
-6. You get a URL like `https://nepq-coach.glitch.me` — open it in Chrome and start coaching!
+1. Go to [**replit.com**](https://replit.com) and sign up (free with GitHub)
+2. Click **Create Repl → Import from GitHub**
+3. Paste: `https://github.com/gerald-pena-lb/NEPQ-coach`
+4. Select branch `claude/ai-meeting-assistant-RnB35`
+5. In the **Secrets** tab (lock icon), add:
+   - `DEEPGRAM_API_KEY` — free at [console.deepgram.com](https://console.deepgram.com)
+   - `ANTHROPIC_API_KEY` — from [console.anthropic.com](https://console.anthropic.com)
+6. Click **Run** — Replit builds and starts the app
+7. Click the URL in the Webview panel to open your live app
 
-> **Note:** Glitch free projects sleep after 5 min of inactivity. They wake up automatically when you visit the URL (takes ~15 seconds). This is fine for meeting use — just open the app before your call.
+### Option 2: Adaptable.io (Also Free)
+
+1. Go to [**adaptable.io**](https://adaptable.io) and sign up with GitHub
+2. Click **Create App → Connect Repo** → select `NEPQ-coach`
+3. Pick branch `claude/ai-meeting-assistant-RnB35`
+4. Set build command: `npm install && npm run build`
+5. Set start command: `npm start`
+6. Add environment variables (`DEEPGRAM_API_KEY`, `ANTHROPIC_API_KEY`)
+7. Deploy — you get a free HTTPS URL
 
 ## NEPQ Framework Stages
 
