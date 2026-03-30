@@ -1,3 +1,5 @@
+modules = ["nodejs-20:v4-20241108-0e498ea"]
+
 run = "npm install && npm start"
 entrypoint = "server/index.js"
 
