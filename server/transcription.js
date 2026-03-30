@@ -17,6 +17,9 @@ export class TranscriptionService {
       interim_results: true,
       utterance_end_ms: 1500,
       vad_events: true,
+      encoding: "linear16",
+      sample_rate: 16000,
+      channels: 1,
     });
 
     return new Promise((resolve, reject) => {

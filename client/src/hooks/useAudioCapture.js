@@ -2,83 +2,91 @@ import { useRef, useCallback, useState } from "react";
 
 export function useAudioCapture({ onAudioData }) {
   const [isCapturing, setIsCapturing] = useState(false);
-  const streamRef = useRef(null);
-  const recorderRef = useRef(null);
+  const cleanupRef = useRef(null);
   const onAudioDataRef = useRef(onAudioData);
   onAudioDataRef.current = onAudioData;
 
   const start = useCallback(async () => {
     try {
-      // Try tab audio first, fall back to microphone
-      let stream;
-      let source = "tab";
+      // Get tab audio
+      const displayStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true,
+      });
 
+      const tabAudioTrack = displayStream.getAudioTracks()[0];
+
+      // Get microphone
+      let micStream;
       try {
-        stream = await navigator.mediaDevices.getDisplayMedia({
-          video: true,
-          audio: true,
-        });
-
-        const audioTrack = stream.getAudioTracks()[0];
-        if (!audioTrack) {
-          stream.getTracks().forEach(t => t.stop());
-          throw new Error("No audio track from tab");
-        }
-
-        // Also capture microphone and merge both
-        const micStream = await navigator.mediaDevices.getUserMedia({
+        micStream = await navigator.mediaDevices.getUserMedia({
           audio: { echoCancellation: true, noiseSuppression: true },
         });
-
-        // Combine tab audio + mic audio
-        const audioContext = new AudioContext();
-        const tabSource = audioContext.createMediaStreamSource(new MediaStream([audioTrack]));
-        const micSource = audioContext.createMediaStreamSource(micStream);
-        const destination = audioContext.createMediaStreamDestination();
-
-        tabSource.connect(destination);
-        micSource.connect(destination);
-
-        // Stop video tracks
-        stream.getVideoTracks().forEach(t => t.stop());
-
-        // Use the merged stream
-        stream = destination.stream;
-
-        // Keep references to stop later
-        stream._extraTracks = [...micStream.getTracks(), audioTrack];
-        stream._audioContext = audioContext;
-
-        source = "tab+mic";
-      } catch (err) {
-        console.log("[AudioCapture] Tab capture failed, using mic only:", err.message);
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true },
-        });
-        source = "mic";
+      } catch (e) {
+        console.log("[AudioCapture] Mic not available, tab only");
       }
 
-      console.log("[AudioCapture] Source:", source);
-      streamRef.current = stream;
+      // Create AudioContext at 16kHz for Deepgram
+      const audioContext = new AudioContext({ sampleRate: 16000 });
 
-      const recorder = new MediaRecorder(stream, {
-        mimeType: "audio/webm;codecs=opus",
-      });
-      recorderRef.current = recorder;
+      if (audioContext.state === "suspended") {
+        await audioContext.resume();
+      }
+
+      console.log("[AudioCapture] Context sampleRate:", audioContext.sampleRate);
+
+      const destination = audioContext.createMediaStreamDestination();
+
+      // Connect tab audio if available
+      if (tabAudioTrack) {
+        const tabSource = audioContext.createMediaStreamSource(new MediaStream([tabAudioTrack]));
+        tabSource.connect(destination);
+      }
+
+      // Connect mic if available
+      if (micStream) {
+        const micSource = audioContext.createMediaStreamSource(micStream);
+        micSource.connect(destination);
+      }
+
+      // Use ScriptProcessor on the merged destination
+      const mergedSource = audioContext.createMediaStreamSource(destination.stream);
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
 
       let chunkCount = 0;
-      recorder.ondataavailable = async (event) => {
-        if (event.data.size > 0) {
-          chunkCount++;
-          if (chunkCount <= 5 || chunkCount % 20 === 0) {
-            console.log("[AudioCapture] Chunk #" + chunkCount, "size:", event.data.size);
-          }
-          const buffer = await event.data.arrayBuffer();
-          onAudioDataRef.current(buffer);
+      processor.onaudioprocess = (event) => {
+        const float32Data = event.inputBuffer.getChannelData(0);
+
+        const int16Array = new Int16Array(float32Data.length);
+        for (let i = 0; i < float32Data.length; i++) {
+          const s = Math.max(-1, Math.min(1, float32Data[i]));
+          int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
         }
+
+        chunkCount++;
+        if (chunkCount <= 3 || chunkCount % 100 === 0) {
+          console.log("[AudioCapture] PCM chunk #" + chunkCount, "size:", int16Array.buffer.byteLength);
+        }
+
+        onAudioDataRef.current(int16Array.buffer);
       };
 
-      recorder.start(500);
+      mergedSource.connect(processor);
+      processor.connect(audioContext.destination);
+
+      // Stop video tracks after pipeline is running
+      setTimeout(() => {
+        displayStream.getVideoTracks().forEach(t => t.stop());
+      }, 2000);
+
+      // Store cleanup function
+      cleanupRef.current = () => {
+        processor.disconnect();
+        audioContext.close().catch(() => {});
+        displayStream.getTracks().forEach(t => t.stop());
+        if (micStream) micStream.getTracks().forEach(t => t.stop());
+      };
+
       setIsCapturing(true);
     } catch (err) {
       console.error("[AudioCapture] Failed:", err);
@@ -87,20 +95,9 @@ export function useAudioCapture({ onAudioData }) {
   }, []);
 
   const stop = useCallback(() => {
-    if (recorderRef.current && recorderRef.current.state !== "inactive") {
-      recorderRef.current.stop();
-      recorderRef.current = null;
-    }
-    if (streamRef.current) {
-      // Stop extra tracks if we merged tab+mic
-      if (streamRef.current._extraTracks) {
-        streamRef.current._extraTracks.forEach(t => t.stop());
-      }
-      if (streamRef.current._audioContext) {
-        streamRef.current._audioContext.close().catch(() => {});
-      }
-      streamRef.current.getTracks().forEach(t => t.stop());
-      streamRef.current = null;
+    if (cleanupRef.current) {
+      cleanupRef.current();
+      cleanupRef.current = null;
     }
     setIsCapturing(false);
   }, []);
