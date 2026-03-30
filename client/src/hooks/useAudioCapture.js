@@ -9,18 +9,23 @@ export function useAudioCapture({ onAudioData }) {
   const streamRef = useRef(null);
   const contextRef = useRef(null);
   const processorRef = useRef(null);
+  const onAudioDataRef = useRef(onAudioData);
+  onAudioDataRef.current = onAudioData;
 
   const start = useCallback(async () => {
     try {
-      // Request tab audio sharing — user picks which tab to share
+      console.log("[AudioCapture] Requesting getDisplayMedia...");
+
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
         audio: true,
       });
 
+      console.log("[AudioCapture] Got stream. Audio tracks:", stream.getAudioTracks().length, "Video tracks:", stream.getVideoTracks().length);
+
       streamRef.current = stream;
 
-      // If the user shared video too, we don't need it — only keep audio tracks
+      // Stop video tracks — we only need audio
       stream.getVideoTracks().forEach((track) => track.stop());
 
       const audioTrack = stream.getAudioTracks()[0];
@@ -28,46 +33,67 @@ export function useAudioCapture({ onAudioData }) {
         throw new Error("No audio track — make sure you checked 'Share audio' when selecting the tab");
       }
 
-      // When user stops sharing via browser UI
+      console.log("[AudioCapture] Audio track:", audioTrack.label, "enabled:", audioTrack.enabled, "readyState:", audioTrack.readyState);
+
       audioTrack.onended = () => {
+        console.log("[AudioCapture] Audio track ended");
         stop();
       };
 
-      // Set up AudioContext to process the stream into PCM chunks
-      const audioContext = new AudioContext({ sampleRate: 16000 });
+      // Create AudioContext — use default sample rate first, then we'll downsample
+      const audioContext = new AudioContext();
       contextRef.current = audioContext;
 
-      const source = audioContext.createMediaStreamSource(
-        new MediaStream([audioTrack])
-      );
+      console.log("[AudioCapture] AudioContext state:", audioContext.state, "sampleRate:", audioContext.sampleRate);
 
-      // Use ScriptProcessor to get raw audio frames
-      // (AudioWorklet would be cleaner but ScriptProcessor is simpler for this use case)
+      // Resume context if suspended (Chrome autoplay policy)
+      if (audioContext.state === "suspended") {
+        await audioContext.resume();
+        console.log("[AudioCapture] AudioContext resumed:", audioContext.state);
+      }
+
+      const source = audioContext.createMediaStreamSource(new MediaStream([audioTrack]));
+
+      // ScriptProcessor to extract raw audio frames
       const processor = audioContext.createScriptProcessor(4096, 1, 1);
       processorRef.current = processor;
 
+      let chunkCount = 0;
       processor.onaudioprocess = (event) => {
         const float32Data = event.inputBuffer.getChannelData(0);
 
+        // Downsample to 16kHz from whatever the context sample rate is
+        const ratio = Math.round(audioContext.sampleRate / 16000);
+        const downsampled = new Float32Array(Math.floor(float32Data.length / ratio));
+        for (let i = 0; i < downsampled.length; i++) {
+          downsampled[i] = float32Data[i * ratio];
+        }
+
         // Convert float32 [-1, 1] to int16 [-32768, 32767]
-        const int16Array = new Int16Array(float32Data.length);
-        for (let i = 0; i < float32Data.length; i++) {
-          const s = Math.max(-1, Math.min(1, float32Data[i]));
+        const int16Array = new Int16Array(downsampled.length);
+        for (let i = 0; i < downsampled.length; i++) {
+          const s = Math.max(-1, Math.min(1, downsampled[i]));
           int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
         }
 
-        onAudioData(int16Array.buffer);
+        chunkCount++;
+        if (chunkCount === 1 || chunkCount % 50 === 0) {
+          console.log("[AudioCapture] Sending chunk #" + chunkCount, "size:", int16Array.buffer.byteLength, "bytes");
+        }
+
+        onAudioDataRef.current(int16Array.buffer);
       };
 
       source.connect(processor);
       processor.connect(audioContext.destination);
 
+      console.log("[AudioCapture] Audio pipeline connected and running");
       setIsCapturing(true);
     } catch (err) {
-      console.error("[Audio] Capture failed:", err);
+      console.error("[AudioCapture] Failed:", err);
       throw err;
     }
-  }, [onAudioData]);
+  }, []);
 
   const stop = useCallback(() => {
     if (processorRef.current) {
@@ -83,6 +109,7 @@ export function useAudioCapture({ onAudioData }) {
       streamRef.current = null;
     }
     setIsCapturing(false);
+    console.log("[AudioCapture] Stopped");
   }, []);
 
   return { isCapturing, start, stop };
