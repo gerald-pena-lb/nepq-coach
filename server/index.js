@@ -49,7 +49,7 @@ wss.on("connection", (ws) => {
       });
 
       transcription = new TranscriptionService({
-        apiKey: process.env.ELEVENLABS_API_KEY,
+        apiKey: process.env.DEEPGRAM_API_KEY,
         onTranscript: async (transcript) => {
           send("transcript", transcript);
 

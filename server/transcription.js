@@ -1,144 +1,94 @@
-import WebSocket from "ws";
+import { createClient, LiveTranscriptionEvents } from "@deepgram/sdk";
 
 export class TranscriptionService {
   constructor({ apiKey, onTranscript, onError }) {
-    this.apiKey = apiKey;
-    this.ws = null;
+    this.deepgram = createClient(apiKey);
+    this.connection = null;
     this.onTranscript = onTranscript;
     this.onError = onError;
-    this.ready = false;
-    this._loggedFirstSend = false;
-    this._loggedNotReady = false;
+    this.keepAliveInterval = null;
   }
 
   async start() {
-    const url = "wss://api.elevenlabs.io/v1/speech-to-text/realtime";
+    this.connection = this.deepgram.listen.live({
+      model: "nova-2",
+      language: "en",
+      smart_format: true,
+      interim_results: true,
+      utterance_end_ms: 1500,
+      vad_events: true,
+      encoding: "linear16",
+      sample_rate: 16000,
+      channels: 1,
+    });
 
     return new Promise((resolve, reject) => {
-      this.ws = new WebSocket(url, {
-        headers: {
-          "xi-api-key": this.apiKey,
-        },
+      this.connection.on(LiveTranscriptionEvents.Open, () => {
+        console.log("[Deepgram] Connection opened");
+
+        this.keepAliveInterval = setInterval(() => {
+          if (this.connection) {
+            this.connection.keepAlive();
+          }
+        }, 10000);
+
+        resolve();
       });
 
-      this.ws.on("open", () => {
-        console.log("[ElevenLabs STT] WebSocket opened, waiting for session_started...");
-      });
-
-      this.ws.on("message", (data) => {
-        try {
-          const msg = JSON.parse(data.toString());
-          const msgType = msg.message_type || msg.type;
-
-          // Session ready
-          if (msgType === "session_started") {
-            console.log("[ElevenLabs STT] Session started:", msg.session_id);
-            this.ready = true;
-            resolve();
-            return;
-          }
-
-          // Final transcript (auto-committed by VAD)
-          if (msgType === "committed_transcript") {
-            console.log("[ElevenLabs STT] Committed transcript:", msg.text?.slice(0, 100));
-            if (msg.text && msg.text.trim().length > 0) {
-              this.onTranscript({
-                text: msg.text,
-                isFinal: true,
-                speaker: 0,
-                confidence: 1,
-                timestamp: Date.now(),
-              });
-            }
-            return;
-          }
-
-          // Partial/interim transcript
-          if (msgType === "partial_transcript") {
-            if (msg.text && msg.text.trim().length > 0) {
-              this.onTranscript({
-                text: msg.text,
-                isFinal: false,
-                speaker: 0,
-                confidence: 0.5,
-                timestamp: Date.now(),
-              });
-            }
-            return;
-          }
-
-          // Committed transcript with timestamps
-          if (msgType === "committed_transcript_with_timestamps") {
-            if (msg.text && msg.text.trim().length > 0) {
-              this.onTranscript({
-                text: msg.text,
-                isFinal: true,
-                speaker: 0,
-                confidence: 1,
-                timestamp: Date.now(),
-              });
-            }
-            return;
-          }
-
-          // Log any unhandled message types
-          console.log("[ElevenLabs STT] Unhandled:", msgType, JSON.stringify(msg).slice(0, 200));
-        } catch (err) {
-          console.error("[ElevenLabs STT] Parse error:", err.message);
+      this.connection.on(LiveTranscriptionEvents.Transcript, (data) => {
+        const transcript = data.channel?.alternatives?.[0]?.transcript;
+        if (transcript && transcript.trim().length > 0) {
+          console.log("[Deepgram] Transcript:", data.is_final ? "FINAL" : "interim", transcript.slice(0, 80));
+          this.onTranscript({
+            text: transcript,
+            isFinal: data.is_final,
+            speaker: data.channel?.alternatives?.[0]?.words?.[0]?.speaker || 0,
+            confidence: data.channel?.alternatives?.[0]?.confidence || 0,
+            timestamp: Date.now(),
+          });
         }
       });
 
-      this.ws.on("error", (err) => {
-        console.error("[ElevenLabs STT] Error:", err.message);
+      this.connection.on(LiveTranscriptionEvents.UtteranceEnd, () => {
+        this.onTranscript({
+          text: "",
+          isFinal: true,
+          isUtteranceEnd: true,
+          timestamp: Date.now(),
+        });
+      });
+
+      this.connection.on(LiveTranscriptionEvents.Error, (err) => {
+        console.error("[Deepgram] Error:", err);
         this.onError(err.message || "Transcription error");
-        if (!this.ready) reject(err);
+        reject(err);
       });
 
-      this.ws.on("close", (code, reason) => {
-        console.log("[ElevenLabs STT] Closed:", code, reason?.toString());
-        this.ready = false;
+      this.connection.on(LiveTranscriptionEvents.Close, () => {
+        console.log("[Deepgram] Connection closed");
+        this._cleanup();
       });
-
-      // Timeout if session doesn't start within 10s
-      setTimeout(() => {
-        if (!this.ready) {
-          reject(new Error("ElevenLabs STT connection timeout"));
-        }
-      }, 10000);
     });
   }
 
   sendAudio(audioBuffer) {
-    if (!this.ready || this.ws?.readyState !== WebSocket.OPEN) {
-      if (!this._loggedNotReady) {
-        console.log("[ElevenLabs STT] Not ready. ready:", this.ready, "wsState:", this.ws?.readyState);
-        this._loggedNotReady = true;
-      }
-      return;
+    if (this.connection) {
+      this.connection.send(audioBuffer);
     }
+  }
 
-    const base64Audio = Buffer.from(audioBuffer).toString("base64");
-
-    if (!this._loggedFirstSend) {
-      console.log("[ElevenLabs STT] Sending first audio chunk, base64 length:", base64Audio.length);
-      this._loggedFirstSend = true;
+  _cleanup() {
+    if (this.keepAliveInterval) {
+      clearInterval(this.keepAliveInterval);
+      this.keepAliveInterval = null;
     }
-
-    // ElevenLabs requires message_type (not type) and audio_base_64
-    this.ws.send(JSON.stringify({
-      message_type: "input_audio_chunk",
-      audio_base_64: base64Audio,
-    }));
   }
 
   async stop() {
-    this.ready = false;
-    if (this.ws) {
-      try {
-        this.ws.send(JSON.stringify({ type: "close" }));
-      } catch { /* ignore */ }
-      this.ws.close();
-      this.ws = null;
+    this._cleanup();
+    if (this.connection) {
+      this.connection.requestClose();
+      this.connection = null;
     }
   }
 }
