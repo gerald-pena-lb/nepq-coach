@@ -34,24 +34,26 @@ export function useAudioCapture({ onAudioData }) {
       processor.onaudioprocess = (event) => {
         const float32Data = event.inputBuffer.getChannelData(0);
 
-        const int16Array = new Int16Array(float32Data.length);
+        // Convert to explicit little-endian bytes using DataView
+        const buffer = new ArrayBuffer(float32Data.length * 2);
+        const view = new DataView(buffer);
         for (let i = 0; i < float32Data.length; i++) {
           const s = Math.max(-1, Math.min(1, float32Data[i]));
-          int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+          const val = s < 0 ? s * 0x8000 : s * 0x7fff;
+          view.setInt16(i * 2, Math.round(val), true); // true = little-endian
         }
 
         chunkCount++;
         if (chunkCount <= 3) {
-          // Check if there's actual audio
           let max = 0;
-          for (let i = 0; i < int16Array.length; i++) {
-            const abs = Math.abs(int16Array[i]);
+          for (let i = 0; i < float32Data.length; i++) {
+            const abs = Math.abs(view.getInt16(i * 2, true));
             if (abs > max) max = abs;
           }
-          console.log("[AudioCapture] Chunk #" + chunkCount, "size:", int16Array.buffer.byteLength, "maxSample:", max);
+          console.log("[AudioCapture] Chunk #" + chunkCount, "size:", buffer.byteLength, "maxSample:", max);
         }
 
-        onAudioDataRef.current(int16Array.buffer);
+        onAudioDataRef.current(buffer);
       };
 
       source.connect(processor);
