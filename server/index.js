@@ -53,7 +53,7 @@ wss.on("connection", (ws) => {
         onTranscript: async (transcript) => {
           send("transcript", transcript);
 
-          if (transcript.isFinal && transcript.text) {
+          if (transcript.isFinal && transcript.text && coaching) {
             coaching.addTranscript(transcript);
             console.log("[Coaching] Transcript added, pending:", coaching.pendingTranscript.length, "chars");
             const suggestion = await coaching.getSuggestion();
