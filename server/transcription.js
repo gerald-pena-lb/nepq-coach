@@ -5,10 +5,12 @@ export class TranscriptionService {
     this.apiKey = apiKey;
     this.onTranscript = onTranscript;
     this.onError = onError;
-    this.chunks = [];
+    this.allChunks = [];
+    this.newChunks = 0;
     this.processing = false;
     this.interval = null;
     this.stopped = false;
+    this.lastTranscriptLength = 0;
   }
 
   async start() {
@@ -24,25 +26,33 @@ export class TranscriptionService {
 
   sendAudio(audioBuffer) {
     if (!this.stopped) {
-      this.chunks.push(Buffer.from(audioBuffer));
+      this.allChunks.push(Buffer.from(audioBuffer));
+      this.newChunks++;
     }
   }
 
   async _processChunks() {
-    if (this.chunks.length === 0) return;
+    if (this.newChunks === 0) return;
 
     this.processing = true;
-    const audioChunks = this.chunks.splice(0);
-    const combined = Buffer.concat(audioChunks);
+    this.newChunks = 0;
+
+    // Send ALL accumulated chunks as one continuous webm stream
+    // because webm chunks are not independently decodable
+    const combined = Buffer.concat(this.allChunks);
 
     console.log("[Transcription] Processing", audioChunks.length, "chunks,", combined.length, "bytes");
 
     try {
-      const result = await this._transcribe(combined);
-      if (result && result.trim().length > 0) {
-        console.log("[Transcription] Got:", result.slice(0, 100));
+      const fullResult = await this._transcribe(combined);
+      // Only emit the NEW portion of the transcript
+      const newText = fullResult.slice(this.lastTranscriptLength).trim();
+      this.lastTranscriptLength = fullResult.length;
+
+      if (newText.length > 0) {
+        console.log("[Transcription] New text:", newText.slice(0, 100));
         this.onTranscript({
-          text: result,
+          text: newText,
           isFinal: true,
           speaker: 0,
           confidence: 1,
@@ -100,7 +110,7 @@ export class TranscriptionService {
       this.interval = null;
     }
     // Process any remaining audio
-    if (this.chunks.length > 0) {
+    if (this.newChunks > 0) {
       await this._processChunks();
     }
   }
