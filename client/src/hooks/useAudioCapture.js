@@ -60,13 +60,24 @@ export function useAudioCapture({ onAudioData }) {
     source.connect(processor);
     processor.connect(audioContext.destination);
 
-    // Every 3 seconds, send all accumulated audio as a WAV file
+    // Every 3 seconds, send last ~30 seconds of audio as WAV
+    const maxSamples = sampleRate * 30; // 30 seconds max
     const interval = setInterval(() => {
       if (allSamples.length === 0) return;
 
       // Combine all int16 arrays
       let totalLength = 0;
       for (const chunk of allSamples) totalLength += chunk.length;
+
+      // Trim to last 30 seconds if needed
+      if (totalLength > maxSamples) {
+        let trimLength = 0;
+        while (allSamples.length > 0 && trimLength + allSamples[0].length < totalLength - maxSamples) {
+          trimLength += allSamples.shift().length;
+        }
+        totalLength = 0;
+        for (const chunk of allSamples) totalLength += chunk.length;
+      }
       const combined = new Int16Array(totalLength);
       let offset = 0;
       for (const chunk of allSamples) {
