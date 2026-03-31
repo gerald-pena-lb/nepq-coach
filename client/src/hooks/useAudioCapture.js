@@ -32,7 +32,7 @@ export function useAudioCapture({ onAudioData }) {
         }
       };
 
-      recorder.start(100); // 100ms chunks for low latency
+      recorder.start(250); // 250ms chunks
 
       cleanupRef.current = () => {
         if (recorder.state !== "inactive") recorder.stop();
