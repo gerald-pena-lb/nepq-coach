@@ -83,15 +83,15 @@ export default function App() {
       setTranscripts([]);
       setSuggestions([]);
       send("start");
-      setStatus({ status: "sharing", message: "Select your Google Meet tab and check 'Share audio'" });
+      setStatus({ status: "starting", message: "Starting microphone..." });
       await startCapture();
       setIsActive(true);
-      setStatus({ status: "active", message: "Listening — coaching is live" });
+      setStatus({ status: "active", message: "Listening — place device near your meeting" });
     } catch (err) {
       setStatus({
         status: "error",
         message: err.name === "NotAllowedError"
-          ? "Tab sharing was cancelled. Click Start to try again."
+          ? "Microphone access denied. Allow mic and try again."
           : err.message,
       });
       send("stop");

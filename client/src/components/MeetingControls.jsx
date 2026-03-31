@@ -119,7 +119,7 @@ export default function MeetingControls({ status, onStart, onStop, isActive, isC
       {!isActive ? (
         <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
           <div style={styles.steps}>
-            1. Open your Google Meet in another tab &nbsp;→&nbsp; 2. Click Start &nbsp;→&nbsp; 3. Share that tab with audio
+            Open this on a separate device near your meeting &nbsp;→&nbsp; Click Start &nbsp;→&nbsp; Get live coaching
           </div>
           <button style={styles.startBtn} onClick={onStart}>
             Start Coaching
