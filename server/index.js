@@ -48,6 +48,8 @@ wss.on("connection", (ws) => {
         apiKey: process.env.GROQ_API_KEY,
       });
 
+      let suggestionTimer = null;
+
       transcription = new TranscriptionService({
         apiKey: process.env.DEEPGRAM_API_KEY,
         onTranscript: async (transcript) => {
@@ -55,12 +57,20 @@ wss.on("connection", (ws) => {
 
           if (transcript.isFinal && transcript.text && coaching) {
             coaching.addTranscript(transcript);
-            console.log("[Coaching] Transcript added, pending:", coaching.pendingTranscript.length, "chars");
-            const suggestion = await coaching.getSuggestion();
-            if (suggestion) {
-              console.log("[Coaching] Suggestion generated:", suggestion.stage);
-              send("suggestion", suggestion);
-            }
+
+            // Clear previous timer — prospect is still talking
+            if (suggestionTimer) clearTimeout(suggestionTimer);
+
+            // Wait 5 seconds of silence before suggesting
+            suggestionTimer = setTimeout(async () => {
+              if (!coaching) return;
+              console.log("[Coaching] Prospect paused. Generating suggestion...");
+              const suggestion = await coaching.getSuggestion();
+              if (suggestion) {
+                console.log("[Coaching] Suggestion:", suggestion.stage);
+                send("suggestion", suggestion);
+              }
+            }, 5000);
           }
         },
         onError: (error) => {

@@ -85,7 +85,7 @@ export class CoachingEngine {
     this.apiKey = apiKey;
     this.conversationHistory = [];
     this.lastSuggestionTime = 0;
-    this.minInterval = 3000;
+    this.minInterval = 10000; // At least 10 seconds between suggestions
     this.pendingTranscript = "";
   }
 
