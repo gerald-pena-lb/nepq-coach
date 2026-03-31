@@ -41,7 +41,7 @@ export class TranscriptionService {
     // because webm chunks are not independently decodable
     const combined = Buffer.concat(this.allChunks);
 
-    console.log("[Transcription] Processing", audioChunks.length, "chunks,", combined.length, "bytes");
+    console.log("[Transcription] Processing", this.allChunks.length, "chunks,", combined.length, "bytes");
 
     try {
       const fullResult = await this._transcribe(combined);
