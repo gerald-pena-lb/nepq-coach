@@ -18,7 +18,7 @@ export class TranscriptionService {
       utterance_end_ms: 1500,
       vad_events: true,
       encoding: "linear16",
-      sample_rate: 48000,
+      sample_rate: 44100,
       channels: 1,
     });
 
