@@ -1,69 +1,99 @@
 import { useRef, useCallback, useState } from "react";
 
+function createWavBuffer(samples, sampleRate) {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  // WAV header
+  const writeString = (offset, str) => { for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i)); };
+  writeString(0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeString(8, "WAVE");
+  writeString(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  // Write PCM samples
+  for (let i = 0; i < samples.length; i++) {
+    view.setInt16(44 + i * 2, samples[i], true);
+  }
+  return buffer;
+}
+
 export function useAudioCapture({ onAudioData }) {
   const [isCapturing, setIsCapturing] = useState(false);
-  const recorderRef = useRef(null);
-  const streamRef = useRef(null);
-  const blobsRef = useRef([]);
+  const cleanupRef = useRef(null);
   const onAudioDataRef = useRef(onAudioData);
   onAudioDataRef.current = onAudioData;
 
   const start = useCallback(async () => {
-    blobsRef.current = [];
-
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true },
     });
-    streamRef.current = stream;
 
-    // Find a supported mimeType
-    const mimeTypes = [
-      "audio/webm;codecs=opus",
-      "audio/webm",
-      "audio/ogg;codecs=opus",
-      "audio/mp4",
-      "audio/aac",
-      "",
-    ];
-    let mimeType = "";
-    for (const mt of mimeTypes) {
-      if (mt === "" || MediaRecorder.isTypeSupported(mt)) {
-        mimeType = mt;
-        break;
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const sampleRate = audioContext.sampleRate;
+
+    if (audioContext.state === "suspended") await audioContext.resume();
+
+    const source = audioContext.createMediaStreamSource(stream);
+    const processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+    let allSamples = [];
+
+    processor.onaudioprocess = (event) => {
+      const input = event.inputBuffer.getChannelData(0);
+      // Convert to int16
+      const int16 = new Int16Array(input.length);
+      for (let i = 0; i < input.length; i++) {
+        const s = Math.max(-1, Math.min(1, input[i]));
+        int16[i] = s < 0 ? s * 32768 : s * 32767;
       }
-    }
-    console.log("[Mic] Using mimeType:", mimeType || "default");
-
-    const recorder = mimeType
-      ? new MediaRecorder(stream, { mimeType })
-      : new MediaRecorder(stream);
-    recorderRef.current = recorder;
-
-    recorder.ondataavailable = async (e) => {
-      if (e.data.size > 0) {
-        blobsRef.current.push(e.data);
-        // Combine ALL blobs into one valid audio file
-        const combined = new Blob(blobsRef.current, { type: e.data.type || "audio/webm" });
-        const buf = await combined.arrayBuffer();
-        console.log("[Mic] Sending", buf.byteLength, "bytes (" + blobsRef.current.length + " segments)");
-        onAudioDataRef.current(buf);
-      }
+      allSamples.push(int16);
     };
 
-    recorder.start(3000);
+    source.connect(processor);
+    processor.connect(audioContext.destination);
+
+    // Every 3 seconds, send all accumulated audio as a WAV file
+    const interval = setInterval(() => {
+      if (allSamples.length === 0) return;
+
+      // Combine all int16 arrays
+      let totalLength = 0;
+      for (const chunk of allSamples) totalLength += chunk.length;
+      const combined = new Int16Array(totalLength);
+      let offset = 0;
+      for (const chunk of allSamples) {
+        combined.set(chunk, offset);
+        offset += chunk.length;
+      }
+
+      const wav = createWavBuffer(combined, sampleRate);
+      console.log("[Mic] Sending WAV:", wav.byteLength, "bytes,", (totalLength / sampleRate).toFixed(1), "sec");
+      onAudioDataRef.current(wav);
+    }, 3000);
+
+    cleanupRef.current = () => {
+      clearInterval(interval);
+      processor.disconnect();
+      audioContext.close().catch(() => {});
+      stream.getTracks().forEach((t) => t.stop());
+    };
+
     setIsCapturing(true);
   }, []);
 
   const stop = useCallback(() => {
-    if (recorderRef.current && recorderRef.current.state !== "inactive") {
-      recorderRef.current.stop();
+    if (cleanupRef.current) {
+      cleanupRef.current();
+      cleanupRef.current = null;
     }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-    }
-    recorderRef.current = null;
-    streamRef.current = null;
-    blobsRef.current = [];
     setIsCapturing(false);
   }, []);
 

@@ -75,7 +75,7 @@ export class TranscriptionService {
         method: "POST",
         headers: {
           Authorization: "Token " + this.apiKey,
-          "Content-Type": "application/octet-stream",
+          "Content-Type": "audio/wav",
         },
       }, (res) => {
         let data = "";
