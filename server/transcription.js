@@ -18,7 +18,7 @@ export class TranscriptionService {
 
     // Process accumulated audio every 3 seconds
     this.interval = setInterval(() => {
-      if (!this.processing && this.chunks.length > 0) {
+      if (!this.processing && this.newChunks > 0) {
         this._processChunks();
       }
     }, 3000);
