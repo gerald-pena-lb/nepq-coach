@@ -1,4 +1,5 @@
 import WebSocket from "ws";
+import { writeFileSync } from "fs";
 
 export class TranscriptionService {
   constructor({ apiKey, onTranscript, onError }) {
@@ -11,7 +12,7 @@ export class TranscriptionService {
   }
 
   async start() {
-    const url = "wss://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&interim_results=true&utterance_end_ms=1500&vad_events=true&endpointing=500";
+    const url = "wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=48000&channels=1&model=nova-2&smart_format=true&interim_results=true&utterance_end_ms=1500&vad_events=true&endpointing=500";
 
     return new Promise((resolve, reject) => {
       this.ws = new WebSocket(url, {
@@ -92,6 +93,36 @@ export class TranscriptionService {
 
   sendAudio(audioBuffer) {
     if (this.ws?.readyState === WebSocket.OPEN) {
+      // Save first 5 seconds of audio for debugging
+      if (!this._savedAudio) {
+        this._audioChunks = this._audioChunks || [];
+        this._audioChunks.push(Buffer.from(audioBuffer));
+        this._totalSaved = (this._totalSaved || 0) + audioBuffer.length;
+        if (this._totalSaved > 48000 * 2 * 5) { // 5 seconds at 48kHz 16-bit
+          this._savedAudio = true;
+          const combined = Buffer.concat(this._audioChunks);
+          // Write WAV header + PCM data
+          const header = Buffer.alloc(44);
+          header.write("RIFF", 0);
+          header.writeUInt32LE(36 + combined.length, 4);
+          header.write("WAVE", 8);
+          header.write("fmt ", 12);
+          header.writeUInt32LE(16, 16);
+          header.writeUInt16LE(1, 20);
+          header.writeUInt16LE(1, 22);
+          header.writeUInt32LE(48000, 24);
+          header.writeUInt32LE(96000, 28);
+          header.writeUInt16LE(2, 32);
+          header.writeUInt16LE(16, 34);
+          header.write("data", 36);
+          header.writeUInt32LE(combined.length, 40);
+          writeFileSync("/tmp/debug-audio.wav", Buffer.concat([header, combined]));
+          console.log("[Deepgram] Saved debug audio to /tmp/debug-audio.wav (" + combined.length + " bytes)");
+        }
+      }
+      this.ws.send(audioBuffer);
+    }
+  }
       this.ws.send(audioBuffer);
     }
   }

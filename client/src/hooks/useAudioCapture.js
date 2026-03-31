@@ -12,30 +12,46 @@ export function useAudioCapture({ onAudioData }) {
         audio: { echoCancellation: true, noiseSuppression: true },
       });
 
-      console.log("[AudioCapture] Got mic stream");
+      const audioContext = new AudioContext();
+      console.log("[AudioCapture] sampleRate:", audioContext.sampleRate);
 
-      // Use MediaRecorder with webm — send raw to server
-      // Server will convert format for Deepgram
-      const recorder = new MediaRecorder(micStream, {
-        mimeType: "audio/webm;codecs=opus",
-      });
+      if (audioContext.state === "suspended") await audioContext.resume();
+
+      const source = audioContext.createMediaStreamSource(micStream);
+
+      // Use larger buffer for more reliable chunks
+      const processor = audioContext.createScriptProcessor(16384, 1, 1);
 
       let chunkCount = 0;
-      recorder.ondataavailable = async (event) => {
-        if (event.data.size > 0) {
-          chunkCount++;
-          if (chunkCount <= 5 || chunkCount % 20 === 0) {
-            console.log("[AudioCapture] Chunk #" + chunkCount, "size:", event.data.size);
-          }
-          const buffer = await event.data.arrayBuffer();
-          onAudioDataRef.current(buffer);
+      processor.onaudioprocess = (event) => {
+        const input = event.inputBuffer.getChannelData(0);
+
+        // Convert float32 to int16 using DataView for explicit little-endian
+        const buffer = new ArrayBuffer(input.length * 2);
+        const view = new DataView(buffer);
+        let maxAbs = 0;
+        for (let i = 0; i < input.length; i++) {
+          const s = Math.max(-1, Math.min(1, input[i]));
+          const val = s < 0 ? s * 32768 : s * 32767;
+          view.setInt16(i * 2, val, true);
+          const abs = Math.abs(val);
+          if (abs > maxAbs) maxAbs = abs;
         }
+
+        chunkCount++;
+        if (chunkCount <= 3) {
+          console.log("[AudioCapture] Chunk #" + chunkCount, "samples:", input.length, "bytes:", buffer.byteLength, "maxAbs:", Math.round(maxAbs), "sampleRate:", audioContext.sampleRate);
+        }
+
+        onAudioDataRef.current(buffer);
       };
 
-      recorder.start(250); // 250ms chunks
+      source.connect(processor);
+      processor.connect(audioContext.destination);
 
       cleanupRef.current = () => {
-        if (recorder.state !== "inactive") recorder.stop();
+        processor.disconnect();
+        audioContext.close().catch(() => {});
         micStream.getTracks().forEach(t => t.stop());
       };
 
