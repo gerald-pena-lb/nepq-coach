@@ -18,7 +18,7 @@ export class TranscriptionService {
       utterance_end_ms: 1500,
       vad_events: true,
       encoding: "linear16",
-      sample_rate: 44100,
+      sample_rate: 48000,
       channels: 1,
     });
 
@@ -82,6 +82,21 @@ export class TranscriptionService {
 
   sendAudio(audioBuffer) {
     if (this.connection) {
+      // Check audio levels on first few chunks
+      if (!this._audioChecked) {
+        this._audioCheckCount = (this._audioCheckCount || 0) + 1;
+        if (this._audioCheckCount === 20) {
+          const buf = Buffer.from(audioBuffer);
+          const int16 = new Int16Array(buf.buffer, buf.byteOffset, buf.length / 2);
+          let maxVal = 0;
+          for (let i = 0; i < int16.length; i++) {
+            const abs = Math.abs(int16[i]);
+            if (abs > maxVal) maxVal = abs;
+          }
+          console.log("[Deepgram] Audio level check - max sample value:", maxVal, "out of 32767. Silent:", maxVal < 100);
+          this._audioChecked = true;
+        }
+      }
       this.connection.send(audioBuffer);
     }
   }
