@@ -1,5 +1,3 @@
-import Anthropic from "@anthropic-ai/sdk";
-
 const NEPQ_SYSTEM_PROMPT = `You are an expert NEPQ (Neuro-Emotional Persuasion Questions) sales coach providing REAL-TIME coaching during a live sales call.
 
 ## Your Role
@@ -65,11 +63,10 @@ Respond in this JSON format:
 
 export class CoachingEngine {
   constructor({ apiKey }) {
-    this.client = new Anthropic({ apiKey });
+    this.apiKey = apiKey;
     this.conversationHistory = [];
-    this.maxHistoryTokens = 3000;
     this.lastSuggestionTime = 0;
-    this.minInterval = 3000; // Don't suggest more than once every 3 seconds
+    this.minInterval = 3000;
     this.pendingTranscript = "";
   }
 
@@ -82,7 +79,6 @@ export class CoachingEngine {
       timestamp: transcript.timestamp,
     });
 
-    // Keep history manageable
     if (this.conversationHistory.length > 50) {
       this.conversationHistory = this.conversationHistory.slice(-30);
     }
@@ -105,19 +101,34 @@ export class CoachingEngine {
       .join("\n");
 
     try {
-      const response = await this.client.messages.create({
-        model: "claude-sonnet-4-5-20250514",
-        max_tokens: 500,
-        system: NEPQ_SYSTEM_PROMPT,
-        messages: [
-          {
-            role: "user",
-            content: `Here's the conversation so far:\n\n${conversationContext}\n\nThe prospect just said: "${currentTranscript.trim()}"\n\nWhat should the sales rep say or ask next?`,
-          },
-        ],
+      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": "Bearer " + this.apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "llama-3.3-70b-versatile",
+          messages: [
+            { role: "system", content: NEPQ_SYSTEM_PROMPT },
+            {
+              role: "user",
+              content: `Here's the conversation so far:\n\n${conversationContext}\n\nThe prospect just said: "${currentTranscript.trim()}"\n\nWhat should the sales rep say or ask next?`,
+            },
+          ],
+          max_tokens: 500,
+          temperature: 0.7,
+        }),
       });
 
-      const text = response.content[0]?.text;
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error("[Coaching] Groq error:", response.status, JSON.stringify(data).slice(0, 200));
+        return null;
+      }
+
+      const text = data.choices?.[0]?.message?.content;
       if (!text) return null;
 
       // Try to parse as JSON, fall back to plain text
@@ -133,7 +144,7 @@ export class CoachingEngine {
         };
       }
     } catch (err) {
-      console.error("[Coaching] Error getting suggestion:", err.message, err.status || "", err.error?.message || "");
+      console.error("[Coaching] Error:", err.message);
       return null;
     }
   }
