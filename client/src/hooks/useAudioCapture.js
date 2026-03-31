@@ -16,14 +16,34 @@ export function useAudioCapture({ onAudioData }) {
     });
     streamRef.current = stream;
 
-    const recorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
+    // Find a supported mimeType
+    const mimeTypes = [
+      "audio/webm;codecs=opus",
+      "audio/webm",
+      "audio/ogg;codecs=opus",
+      "audio/mp4",
+      "audio/aac",
+      "",
+    ];
+    let mimeType = "";
+    for (const mt of mimeTypes) {
+      if (mt === "" || MediaRecorder.isTypeSupported(mt)) {
+        mimeType = mt;
+        break;
+      }
+    }
+    console.log("[Mic] Using mimeType:", mimeType || "default");
+
+    const recorder = mimeType
+      ? new MediaRecorder(stream, { mimeType })
+      : new MediaRecorder(stream);
     recorderRef.current = recorder;
 
     recorder.ondataavailable = async (e) => {
       if (e.data.size > 0) {
         blobsRef.current.push(e.data);
-        // Combine ALL blobs into one valid webm file
-        const combined = new Blob(blobsRef.current, { type: "audio/webm;codecs=opus" });
+        // Combine ALL blobs into one valid audio file
+        const combined = new Blob(blobsRef.current, { type: e.data.type || "audio/webm" });
         const buf = await combined.arrayBuffer();
         console.log("[Mic] Sending", buf.byteLength, "bytes (" + blobsRef.current.length + " segments)");
         onAudioDataRef.current(buf);

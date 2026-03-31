@@ -75,7 +75,7 @@ export class TranscriptionService {
         method: "POST",
         headers: {
           Authorization: "Token " + this.apiKey,
-          "Content-Type": "audio/webm",
+          "Content-Type": "application/octet-stream",
         },
       }, (res) => {
         let data = "";
