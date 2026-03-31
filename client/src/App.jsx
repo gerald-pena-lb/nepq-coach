@@ -5,36 +5,6 @@ import Suggestions from "./components/Suggestions.jsx";
 import { useWebSocket } from "./hooks/useWebSocket.js";
 import { useAudioCapture } from "./hooks/useAudioCapture.js";
 
-const styles = {
-  app: {
-    height: "100vh",
-    display: "flex",
-    flexDirection: "column",
-    background: "#0f0f13",
-  },
-  main: {
-    flex: 1,
-    display: "flex",
-    overflow: "hidden",
-  },
-  wsIndicator: {
-    position: "fixed",
-    bottom: "12px",
-    right: "12px",
-    fontSize: "11px",
-    color: "#52525b",
-    display: "flex",
-    alignItems: "center",
-    gap: "6px",
-  },
-  wsDot: (connected) => ({
-    width: "6px",
-    height: "6px",
-    borderRadius: "50%",
-    background: connected ? "#22c55e" : "#ef4444",
-  }),
-};
-
 const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
 const WS_URL = `${wsProtocol}//${window.location.host}`;
 
@@ -45,33 +15,18 @@ export default function App() {
   const [isActive, setIsActive] = useState(false);
 
   const { isConnected, on, send, sendBinary } = useWebSocket(WS_URL);
-
   const { isCapturing, start: startCapture, stop: stopCapture } = useAudioCapture({
-    onAudioData: (buffer) => {
-      sendBinary(buffer);
-    },
+    onAudioData: (buffer) => sendBinary(buffer),
   });
 
   useEffect(() => {
     on("transcript", (data) => {
       if (data.text) {
-        setTranscripts((prev) => {
-          if (!data.isFinal && prev.length > 0 && !prev[prev.length - 1].isFinal) {
-            return [...prev.slice(0, -1), data];
-          }
-          return [...prev, data];
-        });
+        setTranscripts((prev) => [...prev, data]);
       }
     });
-
-    on("suggestion", (data) => {
-      setSuggestions((prev) => [...prev, data]);
-    });
-
-    on("status", (data) => {
-      setStatus(data);
-    });
-
+    on("suggestion", (data) => setSuggestions((prev) => [...prev, data]));
+    on("status", (data) => setStatus(data));
     on("error", (data) => {
       console.error("[Error]", data.message);
       setStatus({ status: "error", message: data.message });
@@ -83,10 +38,9 @@ export default function App() {
       setTranscripts([]);
       setSuggestions([]);
       send("start");
-      setStatus({ status: "starting", message: "Starting microphone..." });
       await startCapture();
       setIsActive(true);
-      setStatus({ status: "active", message: "Listening — place device near your meeting" });
+      setStatus({ status: "active", message: "Listening..." });
     } catch (err) {
       setStatus({
         status: "error",
@@ -103,7 +57,7 @@ export default function App() {
     stopCapture();
     send("stop");
     setIsActive(false);
-    setStatus({ status: "stopped", message: "Coaching session ended" });
+    setStatus({ status: "stopped", message: "Session ended" });
   }, [send, stopCapture]);
 
   return (
@@ -119,10 +73,40 @@ export default function App() {
         <Transcript transcripts={transcripts} />
         <Suggestions suggestions={suggestions} />
       </div>
-      <div style={styles.wsIndicator}>
-        <span style={styles.wsDot(isConnected)} />
+      <div style={styles.indicator}>
+        <span style={{ ...styles.dot, background: isConnected ? "#22c55e" : "#ef4444" }} />
         {isConnected ? "Connected" : "Reconnecting..."}
       </div>
     </div>
   );
 }
+
+const styles = {
+  app: {
+    height: "100vh",
+    display: "flex",
+    flexDirection: "column",
+    background: "#0f0f13",
+  },
+  main: {
+    flex: 1,
+    display: "flex",
+    overflow: "hidden",
+    flexDirection: window.innerWidth < 768 ? "column" : "row",
+  },
+  indicator: {
+    position: "fixed",
+    bottom: "8px",
+    right: "12px",
+    fontSize: "11px",
+    color: "#52525b",
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+  },
+  dot: {
+    width: "6px",
+    height: "6px",
+    borderRadius: "50%",
+  },
+};

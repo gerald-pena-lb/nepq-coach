@@ -7,19 +7,25 @@ export class TranscriptionService {
     this.onError = onError;
     this.lastTranscript = "";
     this.processing = false;
-    this.pendingAudio = null;
+    this.latestAudio = null;
     this.stopped = false;
   }
 
   async start() {
-    console.log("[Transcription] Service started");
+    console.log("[Transcription] Ready");
   }
 
   sendAudio(audioBuffer) {
     if (this.stopped) return;
 
-    // Each message is the full recording so far — just keep the latest
-    this.pendingAudio = Buffer.from(audioBuffer);
+    const buf = Buffer.from(audioBuffer);
+
+    // Ignore tiny chunks (webm headers, etc)
+    if (buf.length < 1000) return;
+
+    // Each message from client is the FULL recording so far
+    // Just keep the latest one
+    this.latestAudio = buf;
 
     if (!this.processing) {
       this._process();
@@ -27,20 +33,20 @@ export class TranscriptionService {
   }
 
   async _process() {
-    if (!this.pendingAudio || this.processing) return;
+    if (!this.latestAudio || this.processing) return;
 
     this.processing = true;
-    const audio = this.pendingAudio;
-    this.pendingAudio = null;
+    const audio = this.latestAudio;
+    this.latestAudio = null;
 
-    console.log("[Transcription] Sending", audio.length, "bytes to Deepgram");
+    console.log("[Transcription] Sending", audio.length, "bytes to Deepgram...");
 
     try {
-      const result = await this._transcribe(audio);
+      const result = await this._callDeepgram(audio);
       const newText = result.slice(this.lastTranscript.length).trim();
 
       if (newText.length > 0) {
-        console.log("[Transcription] New:", newText.slice(0, 100));
+        console.log("[Transcription]", newText.slice(0, 120));
         this.lastTranscript = result;
         this.onTranscript({
           text: newText,
@@ -51,18 +57,17 @@ export class TranscriptionService {
         });
       }
     } catch (err) {
-      console.error("[Transcription] Error:", err.message);
+      console.error("[Transcription] Error:", err.message.slice(0, 200));
     }
 
     this.processing = false;
 
-    // Process next pending audio if any
-    if (this.pendingAudio) {
+    if (this.latestAudio) {
       this._process();
     }
   }
 
-  _transcribe(audioBuffer) {
+  _callDeepgram(audioBuffer) {
     return new Promise((resolve, reject) => {
       const req = https.request({
         hostname: "api.deepgram.com",
@@ -98,5 +103,6 @@ export class TranscriptionService {
   async stop() {
     this.stopped = true;
     this.lastTranscript = "";
+    this.latestAudio = null;
   }
 }
