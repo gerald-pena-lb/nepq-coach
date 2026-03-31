@@ -93,15 +93,7 @@ wss.on("connection", (ws) => {
         await ensureSession();
       }
 
-      if (audioChunkCount === 1) {
-        console.log("[Audio] First audio chunk received, size:", message.length, "bytes");
-      }
-      if (audioChunkCount === 2 || audioChunkCount === 5 || audioChunkCount === 10) {
-        console.log("[Audio] Chunk #" + audioChunkCount + ", size:", message.length, "bytes");
-      }
-      if (audioChunkCount % 100 === 0) {
-        console.log("[Audio] Received", audioChunkCount, "chunks so far");
-      }
+      console.log("[Audio] Received full recording #" + audioChunkCount + ", size:", message.length, "bytes");
 
       if (transcription) {
         transcription.sendAudio(message);

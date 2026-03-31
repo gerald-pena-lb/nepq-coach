@@ -5,52 +5,43 @@ export class TranscriptionService {
     this.apiKey = apiKey;
     this.onTranscript = onTranscript;
     this.onError = onError;
-    this.allChunks = [];
-    this.newChunks = 0;
+    this.lastTranscript = "";
     this.processing = false;
-    this.interval = null;
+    this.pendingAudio = null;
     this.stopped = false;
-    this.lastTranscriptLength = 0;
   }
 
   async start() {
-    console.log("[Transcription] Service started, waiting for audio...");
-
-    // Process accumulated audio every 3 seconds
-    this.interval = setInterval(() => {
-      if (!this.processing && this.newChunks > 0) {
-        this._processChunks();
-      }
-    }, 3000);
+    console.log("[Transcription] Service started");
   }
 
   sendAudio(audioBuffer) {
-    if (!this.stopped) {
-      this.allChunks.push(Buffer.from(audioBuffer));
-      this.newChunks++;
+    if (this.stopped) return;
+
+    // Each message is the full recording so far — just keep the latest
+    this.pendingAudio = Buffer.from(audioBuffer);
+
+    if (!this.processing) {
+      this._process();
     }
   }
 
-  async _processChunks() {
-    if (this.newChunks === 0) return;
+  async _process() {
+    if (!this.pendingAudio || this.processing) return;
 
     this.processing = true;
-    this.newChunks = 0;
+    const audio = this.pendingAudio;
+    this.pendingAudio = null;
 
-    // Send ALL accumulated chunks as one continuous webm stream
-    // because webm chunks are not independently decodable
-    const combined = Buffer.concat(this.allChunks);
-
-    console.log("[Transcription] Processing", this.allChunks.length, "chunks,", combined.length, "bytes");
+    console.log("[Transcription] Sending", audio.length, "bytes to Deepgram");
 
     try {
-      const fullResult = await this._transcribe(combined);
-      // Only emit the NEW portion of the transcript
-      const newText = fullResult.slice(this.lastTranscriptLength).trim();
-      this.lastTranscriptLength = fullResult.length;
+      const result = await this._transcribe(audio);
+      const newText = result.slice(this.lastTranscript.length).trim();
 
       if (newText.length > 0) {
-        console.log("[Transcription] New text:", newText.slice(0, 100));
+        console.log("[Transcription] New:", newText.slice(0, 100));
+        this.lastTranscript = result;
         this.onTranscript({
           text: newText,
           isFinal: true,
@@ -61,15 +52,19 @@ export class TranscriptionService {
       }
     } catch (err) {
       console.error("[Transcription] Error:", err.message);
-      this.onError(err.message);
     }
 
     this.processing = false;
+
+    // Process next pending audio if any
+    if (this.pendingAudio) {
+      this._process();
+    }
   }
 
   _transcribe(audioBuffer) {
     return new Promise((resolve, reject) => {
-      const options = {
+      const req = https.request({
         hostname: "api.deepgram.com",
         path: "/v1/listen?model=nova-2&smart_format=true",
         method: "POST",
@@ -77,20 +72,17 @@ export class TranscriptionService {
           Authorization: "Token " + this.apiKey,
           "Content-Type": "audio/webm",
         },
-      };
-
-      const req = https.request(options, (res) => {
+      }, (res) => {
         let data = "";
         res.on("data", (d) => (data += d));
         res.on("end", () => {
+          if (res.statusCode !== 200) {
+            reject(new Error(data.slice(0, 200)));
+            return;
+          }
           try {
             const json = JSON.parse(data);
-            if (res.statusCode !== 200) {
-              reject(new Error("Deepgram API error: " + res.statusCode + " " + data.slice(0, 200)));
-              return;
-            }
-            const transcript = json.results?.channels?.[0]?.alternatives?.[0]?.transcript || "";
-            resolve(transcript);
+            resolve(json.results?.channels?.[0]?.alternatives?.[0]?.transcript || "");
           } catch (e) {
             reject(e);
           }
@@ -105,13 +97,6 @@ export class TranscriptionService {
 
   async stop() {
     this.stopped = true;
-    if (this.interval) {
-      clearInterval(this.interval);
-      this.interval = null;
-    }
-    // Process any remaining audio
-    if (this.newChunks > 0) {
-      await this._processChunks();
-    }
+    this.lastTranscript = "";
   }
 }
