@@ -11,7 +11,7 @@ export class TranscriptionService {
   }
 
   async start() {
-    const url = "wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=48000&channels=1&model=nova-2&smart_format=true&interim_results=true&utterance_end_ms=1500&vad_events=true&endpointing=500";
+    const url = "wss://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&interim_results=true&utterance_end_ms=1500&vad_events=true&endpointing=500";
 
     return new Promise((resolve, reject) => {
       this.ws = new WebSocket(url, {
