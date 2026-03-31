@@ -61,7 +61,7 @@ wss.on("connection", (ws) => {
             // Clear previous timer — prospect is still talking
             if (suggestionTimer) clearTimeout(suggestionTimer);
 
-            // Wait 5 seconds of silence before suggesting
+            // Wait 1 second of silence before suggesting
             suggestionTimer = setTimeout(async () => {
               if (!coaching) return;
               console.log("[Coaching] Prospect paused. Generating suggestion...");
@@ -70,7 +70,7 @@ wss.on("connection", (ws) => {
                 console.log("[Coaching] Suggestion:", suggestion.stage);
                 send("suggestion", suggestion);
               }
-            }, 5000);
+            }, 1000);
           }
         },
         onError: (error) => {
