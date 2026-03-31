@@ -26,8 +26,8 @@ export function useAudioCapture({ onAudioData }) {
         console.log("[AudioCapture] Mic not available, tab only");
       }
 
-      // Create AudioContext at 16kHz for Deepgram
-      const audioContext = new AudioContext({ sampleRate: 16000 });
+      // Use DEFAULT sample rate — don't force 16kHz
+      const audioContext = new AudioContext();
 
       if (audioContext.state === "suspended") {
         await audioContext.resume();
