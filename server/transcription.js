@@ -15,11 +15,12 @@ export class TranscriptionService {
       language: "en",
       smart_format: true,
       interim_results: true,
-      utterance_end_ms: 1500,
+      utterance_end_ms: 3000,
       vad_events: true,
       encoding: "linear16",
       sample_rate: 48000,
       channels: 1,
+      endpointing: 500,
     });
 
     return new Promise((resolve, reject) => {
@@ -38,9 +39,9 @@ export class TranscriptionService {
       this.connection.on(LiveTranscriptionEvents.Transcript, (data) => {
         const transcript = data.channel?.alternatives?.[0]?.transcript;
         // Log every transcript event, even empty ones
-        if (!this._loggedFirstTranscript) {
-          console.log("[Deepgram] First transcript event received. Text:", JSON.stringify(transcript), "is_final:", data.is_final);
-          this._loggedFirstTranscript = true;
+        this._transcriptCount = (this._transcriptCount || 0) + 1;
+        if (this._transcriptCount <= 5) {
+          console.log("[Deepgram] Transcript #" + this._transcriptCount + " text:", JSON.stringify(transcript), "is_final:", data.is_final, "speech_final:", data.speech_final, "confidence:", data.channel?.alternatives?.[0]?.confidence);
         }
         if (transcript && transcript.trim().length > 0) {
           console.log("[Deepgram] Transcript:", data.is_final ? "FINAL" : "interim", transcript.slice(0, 80));
