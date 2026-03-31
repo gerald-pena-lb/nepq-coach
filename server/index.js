@@ -45,7 +45,7 @@ wss.on("connection", (ws) => {
       console.log("[Session] Auto-starting session on first audio...");
 
       coaching = new CoachingEngine({
-        apiKey: process.env.GROQ_API_KEY,
+        apiKey: process.env.ANTHROPIC_API_KEY,
       });
 
       let suggestionTimer = null;

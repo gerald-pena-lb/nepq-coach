@@ -1,3 +1,5 @@
+import Anthropic from "@anthropic-ai/sdk";
+
 const SALES_SCRIPT = `You are a real-time AI sales coach. You are listening to a LIVE sales call and must suggest what the sales rep should say next.
 
 You have been trained on the following 6-stage NEPQ-based sales framework. Use it as a FLEXIBLE GUIDE — not a rigid script. Adapt to the flow of the conversation naturally.
@@ -81,10 +83,10 @@ Respond in JSON:
 
 export class CoachingEngine {
   constructor({ apiKey }) {
-    this.apiKey = apiKey;
+    this.client = new Anthropic({ apiKey });
     this.conversationHistory = [];
     this.lastSuggestionTime = 0;
-    this.minInterval = 10000; // At least 10 seconds between suggestions
+    this.minInterval = 10000;
     this.pendingTranscript = "";
   }
 
@@ -118,38 +120,22 @@ export class CoachingEngine {
       .join("\n");
 
     try {
-      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: "Bearer " + this.apiKey,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
-          messages: [
-            { role: "system", content: SALES_SCRIPT },
-            {
-              role: "user",
-              content: `Conversation so far:\n${conversationContext}\n\nProspect just said: "${currentTranscript.trim()}"\n\nWhat should I say next?`,
-            },
-          ],
-          max_tokens: 500,
-          temperature: 0.7,
-        }),
+      const response = await this.client.messages.create({
+        model: "claude-sonnet-4-6",
+        max_tokens: 500,
+        system: SALES_SCRIPT,
+        messages: [
+          {
+            role: "user",
+            content: `Conversation so far:\n${conversationContext}\n\nProspect just said: "${currentTranscript.trim()}"\n\nWhat should I say next?`,
+          },
+        ],
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        console.error("[Coaching] Groq error:", response.status, JSON.stringify(data).slice(0, 200));
-        return null;
-      }
-
-      const text = data.choices?.[0]?.message?.content;
+      const text = response.content[0]?.type === "text" ? response.content[0].text : null;
       if (!text) return null;
 
       try {
-        // Try to extract JSON from the response
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           return JSON.parse(jsonMatch[0]);
@@ -159,11 +145,20 @@ export class CoachingEngine {
       return {
         stage: "Coaching",
         suggestions: [{ text, why: "", priority: 1 }],
-        toneTip: "",
         prospectSentiment: "",
       };
     } catch (err) {
-      console.error("[Coaching] Error:", err.message);
+      if (err instanceof Anthropic.NotFoundError) {
+        console.error("[Coaching] Model not found. Ask your admin to enable claude-sonnet-4-6 on your API key.");
+      } else if (err instanceof Anthropic.AuthenticationError) {
+        console.error("[Coaching] Invalid API key.");
+      } else if (err instanceof Anthropic.RateLimitError) {
+        console.error("[Coaching] Rate limited, will retry next cycle.");
+      } else if (err instanceof Anthropic.APIError) {
+        console.error("[Coaching] API error:", err.status, err.message);
+      } else {
+        console.error("[Coaching] Error:", err.message);
+      }
       return null;
     }
   }
