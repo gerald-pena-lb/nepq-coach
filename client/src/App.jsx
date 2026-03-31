@@ -82,18 +82,9 @@ export default function App() {
     try {
       setTranscripts([]);
       setSuggestions([]);
-
-      // 1. Tell server to start a coaching session (opens ElevenLabs STT connection)
       send("start");
-      setStatus({ status: "starting", message: "Initializing..." });
-
-      // 2. Small delay to let the server connect to ElevenLabs
-      await new Promise((r) => setTimeout(r, 1000));
-
-      // 3. Prompt user to share their Google Meet tab audio
       setStatus({ status: "sharing", message: "Select your Google Meet tab and check 'Share audio'" });
       await startCapture();
-
       setIsActive(true);
       setStatus({ status: "active", message: "Listening — coaching is live" });
     } catch (err) {

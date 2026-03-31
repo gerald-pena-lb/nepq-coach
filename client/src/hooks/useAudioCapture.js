@@ -7,59 +7,41 @@ export function useAudioCapture({ onAudioData }) {
   onAudioDataRef.current = onAudioData;
 
   const start = useCallback(async () => {
-    try {
-      const micStream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true },
-      });
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: true,
+    });
 
-      const audioContext = new AudioContext();
-      console.log("[AudioCapture] sampleRate:", audioContext.sampleRate);
-
-      if (audioContext.state === "suspended") await audioContext.resume();
-
-      const source = audioContext.createMediaStreamSource(micStream);
-
-      // Use larger buffer for more reliable chunks
-      const processor = audioContext.createScriptProcessor(16384, 1, 1);
-
-      let chunkCount = 0;
-      processor.onaudioprocess = (event) => {
-        const input = event.inputBuffer.getChannelData(0);
-
-        // Convert float32 to int16 using DataView for explicit little-endian
-        const buffer = new ArrayBuffer(input.length * 2);
-        const view = new DataView(buffer);
-        let maxAbs = 0;
-        for (let i = 0; i < input.length; i++) {
-          const s = Math.max(-1, Math.min(1, input[i]));
-          const val = s < 0 ? s * 32768 : s * 32767;
-          view.setInt16(i * 2, val, true);
-          const abs = Math.abs(val);
-          if (abs > maxAbs) maxAbs = abs;
-        }
-
-        chunkCount++;
-        if (chunkCount <= 3) {
-          console.log("[AudioCapture] Chunk #" + chunkCount, "samples:", input.length, "bytes:", buffer.byteLength, "maxAbs:", Math.round(maxAbs), "sampleRate:", audioContext.sampleRate);
-        }
-
-        onAudioDataRef.current(buffer);
-      };
-
-      source.connect(processor);
-      processor.connect(audioContext.destination);
-
-      cleanupRef.current = () => {
-        processor.disconnect();
-        audioContext.close().catch(() => {});
-        micStream.getTracks().forEach(t => t.stop());
-      };
-
-      setIsCapturing(true);
-    } catch (err) {
-      console.error("[AudioCapture] Failed:", err);
-      throw err;
+    const audioTrack = stream.getAudioTracks()[0];
+    if (!audioTrack) {
+      stream.getTracks().forEach(t => t.stop());
+      throw new Error("No audio — make sure you checked 'Share audio'");
     }
+
+    audioTrack.onended = () => stop();
+
+    // Record tab audio as webm/opus
+    const audioStream = new MediaStream([audioTrack]);
+    const recorder = new MediaRecorder(audioStream, { mimeType: "audio/webm;codecs=opus" });
+
+    recorder.ondataavailable = async (e) => {
+      if (e.data.size > 0) {
+        const buf = await e.data.arrayBuffer();
+        onAudioDataRef.current(buf);
+      }
+    };
+
+    recorder.start(500);
+
+    // Stop video tracks after audio is running
+    setTimeout(() => stream.getVideoTracks().forEach(t => t.stop()), 2000);
+
+    cleanupRef.current = () => {
+      if (recorder.state !== "inactive") recorder.stop();
+      stream.getTracks().forEach(t => t.stop());
+    };
+
+    setIsCapturing(true);
   }, []);
 
   const stop = useCallback(() => {
