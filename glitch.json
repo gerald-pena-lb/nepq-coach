@@ -1,9 +1,0 @@
-{
-  "install": "npm install",
-  "start": "npm start",
-  "watch": {
-    "restart": {
-      "include": ["server/"]
-    }
-  }
-}
