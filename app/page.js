@@ -97,7 +97,7 @@ export default function HomePage() {
         isActive={audio.isCapturing}
         isProcessing={session.isProcessing}
         sourceType={audio.sourceType}
-        error={audio.error}
+        error={audio.error || session.coachError}
         onStart={handleStart}
         onStop={handleStop}
       />
