@@ -2,10 +2,10 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 
-const SEND_INTERVAL_MS = 3000;
-const SILENCE_DEBOUNCE_MS = 1000;
-const MIN_SUGGESTION_INTERVAL_MS = 10000;
-const MIN_TEXT_LENGTH = 15;
+const SEND_INTERVAL_MS = 1500;
+const SILENCE_DEBOUNCE_MS = 500;
+const MIN_SUGGESTION_INTERVAL_MS = 3000;
+const MIN_TEXT_LENGTH = 10;
 
 export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
   const [transcripts, setTranscripts] = useState([]);
@@ -13,6 +13,7 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [coachError, setCoachError] = useState(null);
   const [sessionStartedAt, setSessionStartedAt] = useState(null);
+  const [repCalibration, setRepCalibration] = useState(null);
 
   const previousFullTranscript = useRef('');
   const pendingText = useRef('');
@@ -22,25 +23,35 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
   const sendIntervalRef = useRef(null);
   const isGenerating = useRef(false);
 
-  const transcribe = useCallback(
+  const transcribe = useCallback(async (blob) => {
+    const formData = new FormData();
+    formData.append('audio', blob, 'audio.wav');
+
+    try {
+      const res = await fetch('/api/transcribe', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.text || '';
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // Calibrate rep voice — transcribe what the rep says before the call
+  const calibrate = useCallback(
     async (blob) => {
-      const formData = new FormData();
-      formData.append('audio', blob, 'audio.wav');
-
-      try {
-        const res = await fetch('/api/transcribe', {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (!res.ok) return null;
-        const data = await res.json();
-        return data.text || '';
-      } catch {
-        return null;
+      const text = await transcribe(blob);
+      if (text && text.trim().length > 5) {
+        setRepCalibration(text.trim());
+        return text.trim();
       }
+      return null;
     },
-    []
+    [transcribe]
   );
 
   const generateSuggestion = useCallback(async () => {
@@ -63,6 +74,7 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
         body: JSON.stringify({
           conversationHistory: conversationHistory.current,
           latestText: text,
+          repCalibration: repCalibration,
         }),
       });
 
@@ -86,7 +98,7 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
       isGenerating.current = false;
       setIsProcessing(false);
     }
-  }, []);
+  }, [repCalibration]);
 
   const processAudio = useCallback(async () => {
     if (!isCapturing) return;
@@ -175,6 +187,8 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
     setTranscripts([]);
     setSuggestions([]);
     setSessionStartedAt(null);
+    setRepCalibration(null);
+    setCoachError(null);
     previousFullTranscript.current = '';
     pendingText.current = '';
     conversationHistory.current = [];
@@ -188,6 +202,8 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
     isProcessing,
     coachError,
     sessionStartedAt,
+    repCalibration,
+    calibrate,
     saveCall,
     reset,
   };
