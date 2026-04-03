@@ -30,7 +30,7 @@ export async function POST(request) {
     const userMessage = `Conversation so far:\n${historyText}\n\nProspect just said: "${latestText}"\n\nWhat should I say next?`;
 
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 500,
       system: NEPQ_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userMessage }],

@@ -11,6 +11,7 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
   const [transcripts, setTranscripts] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [coachError, setCoachError] = useState(null);
   const [sessionStartedAt, setSessionStartedAt] = useState(null);
 
   const previousFullTranscript = useRef('');
@@ -53,6 +54,7 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
 
     isGenerating.current = true;
     setIsProcessing(true);
+    setCoachError(null);
 
     try {
       const res = await fetch('/api/coach', {
@@ -70,9 +72,15 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
           setSuggestions((prev) => [suggestion, ...prev]);
           lastSuggestionTime.current = Date.now();
         }
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        const msg = errData.error || `Coach API error: ${res.status}`;
+        console.error('Coach API error:', msg);
+        setCoachError(msg);
       }
     } catch (err) {
       console.error('Coaching request failed:', err);
+      setCoachError('Network error reaching coaching API');
     } finally {
       pendingText.current = '';
       isGenerating.current = false;
@@ -178,6 +186,7 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
     transcripts,
     suggestions,
     isProcessing,
+    coachError,
     sessionStartedAt,
     saveCall,
     reset,
