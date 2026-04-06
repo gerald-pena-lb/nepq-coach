@@ -155,27 +155,26 @@ export default function HomePage() {
   const calibrationTimerRef = useRef(null);
 
   const audio = useAudioCapture();
+  const stageLabel = STAGES.find((s) => s.id === activeStage)?.label || activeStage;
   const session = useCoachingSession({
     getWavBlob: audio.getWavBlob,
     clearBuffer: audio.clearBuffer,
     isCapturing: isSessionActive && audio.isCapturing,
+    currentStage: stageLabel,
   });
 
-  // When user switches to "suggest" mode, immediately request a suggestion
+  // When user taps "suggest", instantly show cached candidate or generate
   const handleModeChange = useCallback(
     (newMode) => {
       setMode(newMode);
       if (newMode === 'suggest' && isSessionActive) {
-        const stageLabel = STAGES.find((s) => s.id === activeStage)?.label || activeStage;
-        session.requestSuggestion(stageLabel);
-        // Auto-switch back to listen after suggestion is generated
-        // (the user can tap suggest again when needed)
+        session.requestSuggestion();
       }
     },
-    [isSessionActive, activeStage, session]
+    [isSessionActive, session]
   );
 
-  // Once suggestion finishes processing, auto-switch back to listen mode
+  // Auto-switch back to listen once suggestion appears
   useEffect(() => {
     if (mode === 'suggest' && !session.isProcessing && session.suggestions.length > 0) {
       setMode('listen');
@@ -256,12 +255,14 @@ export default function HomePage() {
         isActive={isSessionActive}
         isProcessing={session.isProcessing}
         mode={mode}
+        hasCandidatesReady={session.hasCandidatesReady}
       />
       <ModeToggle
         mode={mode}
         onModeChange={handleModeChange}
         disabled={!isSessionActive}
         isProcessing={session.isProcessing}
+        hasCandidatesReady={session.hasCandidatesReady}
       />
     </div>
   );

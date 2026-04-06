@@ -52,19 +52,22 @@ const styles = {
   },
 };
 
-export default function Suggestions({ suggestions, isActive, isProcessing, mode }) {
+export default function Suggestions({ suggestions, isActive, isProcessing, mode, hasCandidatesReady }) {
   if (suggestions.length === 0) {
+    let message;
+    if (isProcessing) {
+      message = 'Generating suggestion...';
+    } else if (!isActive) {
+      message = 'Coaching suggestions will appear here during your call.';
+    } else if (hasCandidatesReady) {
+      message = 'Suggestion ready — tap SUGGEST to see it.';
+    } else {
+      message = 'Listening... tap SUGGEST when you need coaching.';
+    }
+
     return (
       <div style={styles.container}>
-        <div style={styles.empty}>
-          {isProcessing
-            ? 'Generating suggestion...'
-            : !isActive
-              ? 'Coaching suggestions will appear here during your call.'
-              : mode === 'listen'
-                ? 'Listening... tap SUGGEST when you need coaching.'
-                : 'Tap SUGGEST to get a coaching recommendation.'}
-        </div>
+        <div style={styles.empty}>{message}</div>
       </div>
     );
   }

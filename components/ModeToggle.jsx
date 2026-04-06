@@ -27,19 +27,38 @@ const styles = {
     borderColor: 'var(--border)',
     color: 'var(--text-muted)',
   },
-  suggestActive: {
-    background: 'rgba(129, 140, 248, 0.15)',
+  suggestReady: {
+    background: 'rgba(129, 140, 248, 0.2)',
     borderColor: 'var(--accent)',
     color: 'var(--accent)',
   },
-  suggestInactive: {
+  suggestNotReady: {
     background: 'var(--bg-card)',
     borderColor: 'var(--border)',
     color: 'var(--text-muted)',
   },
+  suggestActive: {
+    background: 'var(--accent)',
+    borderColor: 'var(--accent)',
+    color: '#fff',
+  },
+  readyDot: {
+    display: 'inline-block',
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    background: 'var(--green)',
+    marginRight: 6,
+  },
 };
 
-export default function ModeToggle({ mode, onModeChange, disabled, isProcessing }) {
+export default function ModeToggle({ mode, onModeChange, disabled, isProcessing, hasCandidatesReady }) {
+  const getSuggestStyle = () => {
+    if (mode === 'suggest') return styles.suggestActive;
+    if (hasCandidatesReady) return styles.suggestReady;
+    return styles.suggestNotReady;
+  };
+
   return (
     <div style={styles.container}>
       <button
@@ -56,13 +75,20 @@ export default function ModeToggle({ mode, onModeChange, disabled, isProcessing 
       <button
         style={{
           ...styles.btn,
-          ...(mode === 'suggest' ? styles.suggestActive : styles.suggestInactive),
+          ...getSuggestStyle(),
           opacity: disabled ? 0.5 : 1,
         }}
         onClick={() => onModeChange('suggest')}
         disabled={disabled || isProcessing}
       >
-        {isProcessing ? 'THINKING...' : 'SUGGEST'}
+        {isProcessing ? (
+          'THINKING...'
+        ) : (
+          <>
+            {hasCandidatesReady && <span style={styles.readyDot} />}
+            SUGGEST
+          </>
+        )}
       </button>
     </div>
   );

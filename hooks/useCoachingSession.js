@@ -3,20 +3,28 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 
 const SEND_INTERVAL_MS = 1500;
+const PREGEN_DEBOUNCE_MS = 2000; // debounce before pre-generating candidates
 
-export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
+export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, currentStage }) {
   const [transcripts, setTranscripts] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [coachError, setCoachError] = useState(null);
   const [sessionStartedAt, setSessionStartedAt] = useState(null);
   const [repCalibration, setRepCalibration] = useState(null);
+  const [hasCandidatesReady, setHasCandidatesReady] = useState(false);
 
   const previousFullTranscript = useRef('');
   const pendingText = useRef('');
   const conversationHistory = useRef([]);
   const sendIntervalRef = useRef(null);
-  const isGenerating = useRef(false);
+
+  // Pre-generation state
+  const candidates = useRef([]); // cached suggestion candidates
+  const candidateTextSnapshot = useRef(''); // text used to generate candidates
+  const pregenTimer = useRef(null);
+  const pregenAbort = useRef(null); // AbortController for in-flight pregen
+  const isPregenning = useRef(false);
 
   const transcribe = useCallback(async (blob) => {
     const formData = new FormData();
@@ -36,7 +44,6 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
     }
   }, []);
 
-  // Calibrate rep voice — transcribe what the rep says before the call
   const calibrate = useCallback(
     async (blob) => {
       const text = await transcribe(blob);
@@ -49,11 +56,10 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
     [transcribe]
   );
 
-  // Manual trigger — called when user clicks "Suggest"
-  const requestSuggestion = useCallback(async (currentStage) => {
-    if (isGenerating.current) return;
+  // Pre-generate candidates in the background
+  const pregenerate = useCallback(async () => {
+    if (isPregenning.current) return;
 
-    // Use pending text or fall back to recent conversation history
     let text = pendingText.current.trim();
     if (text.length < 5) {
       const recent = conversationHistory.current.slice(-5);
@@ -61,7 +67,67 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
     }
     if (text.length < 5) return;
 
-    isGenerating.current = true;
+    // Don't re-generate for the same text
+    if (text === candidateTextSnapshot.current && candidates.current.length > 0) return;
+
+    isPregenning.current = true;
+
+    // Abort any previous in-flight pregen
+    if (pregenAbort.current) pregenAbort.current.abort();
+    pregenAbort.current = new AbortController();
+
+    try {
+      const res = await fetch('/api/coach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationHistory: conversationHistory.current,
+          latestText: text,
+          repCalibration: repCalibration,
+          currentStage: currentStage,
+          pregenerate: true,
+        }),
+        signal: pregenAbort.current.signal,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.candidates && data.candidates.length > 0) {
+          candidates.current = data.candidates;
+          candidateTextSnapshot.current = text;
+          setHasCandidatesReady(true);
+        }
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.error('Pregen failed:', err);
+      }
+    } finally {
+      isPregenning.current = false;
+    }
+  }, [repCalibration, currentStage]);
+
+  // When user taps "Suggest" — instantly show cached candidate, or generate on demand
+  const requestSuggestion = useCallback(async () => {
+    // If we have fresh candidates, show the best one instantly
+    if (candidates.current.length > 0) {
+      const best = candidates.current[0]; // ranked by priority from API
+      setSuggestions((prev) => [best, ...prev]);
+      candidates.current = [];
+      candidateTextSnapshot.current = '';
+      setHasCandidatesReady(false);
+      pendingText.current = '';
+      return;
+    }
+
+    // Fallback: generate on demand
+    let text = pendingText.current.trim();
+    if (text.length < 5) {
+      const recent = conversationHistory.current.slice(-5);
+      text = recent.map((t) => t.text).join(' ').trim();
+    }
+    if (text.length < 5) return;
+
     setIsProcessing(true);
     setCoachError(null);
 
@@ -84,19 +150,16 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
         }
       } else {
         const errData = await res.json().catch(() => ({}));
-        const msg = errData.error || `Coach API error: ${res.status}`;
-        console.error('Coach API error:', msg);
-        setCoachError(msg);
+        setCoachError(errData.error || `Coach API error: ${res.status}`);
       }
     } catch (err) {
       console.error('Coaching request failed:', err);
       setCoachError('Network error reaching coaching API');
     } finally {
       pendingText.current = '';
-      isGenerating.current = false;
       setIsProcessing(false);
     }
-  }, [repCalibration]);
+  }, [repCalibration, currentStage]);
 
   const processAudio = useCallback(async () => {
     if (!isCapturing) return;
@@ -134,7 +197,11 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
 
     // Accumulate pending text
     pendingText.current += ' ' + delta;
-  }, [isCapturing, getWavBlob, transcribe]);
+
+    // Debounce pre-generation: regenerate candidates after speech pauses
+    if (pregenTimer.current) clearTimeout(pregenTimer.current);
+    pregenTimer.current = setTimeout(pregenerate, PREGEN_DEBOUNCE_MS);
+  }, [isCapturing, getWavBlob, transcribe, pregenerate]);
 
   // Start/stop the send interval when capturing changes
   useEffect(() => {
@@ -143,16 +210,36 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
       previousFullTranscript.current = '';
       pendingText.current = '';
       conversationHistory.current = [];
+      candidates.current = [];
+      candidateTextSnapshot.current = '';
+      setHasCandidatesReady(false);
 
       sendIntervalRef.current = setInterval(processAudio, SEND_INTERVAL_MS);
 
       return () => {
         clearInterval(sendIntervalRef.current);
+        if (pregenTimer.current) clearTimeout(pregenTimer.current);
+        if (pregenAbort.current) pregenAbort.current.abort();
       };
     } else {
       if (sendIntervalRef.current) clearInterval(sendIntervalRef.current);
+      if (pregenTimer.current) clearTimeout(pregenTimer.current);
+      if (pregenAbort.current) pregenAbort.current.abort();
     }
   }, [isCapturing, processAudio]);
+
+  // Re-trigger pre-generation when stage changes
+  useEffect(() => {
+    if (isCapturing && currentStage) {
+      // Invalidate current candidates since stage changed
+      candidates.current = [];
+      candidateTextSnapshot.current = '';
+      setHasCandidatesReady(false);
+      // Immediately pre-generate for new stage
+      if (pregenTimer.current) clearTimeout(pregenTimer.current);
+      pregenTimer.current = setTimeout(pregenerate, 500);
+    }
+  }, [currentStage, isCapturing, pregenerate]);
 
   const saveCall = useCallback(async () => {
     if (!sessionStartedAt) return;
@@ -181,9 +268,13 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
     setSessionStartedAt(null);
     setRepCalibration(null);
     setCoachError(null);
+    setHasCandidatesReady(false);
     previousFullTranscript.current = '';
     pendingText.current = '';
     conversationHistory.current = [];
+    candidates.current = [];
+    candidateTextSnapshot.current = '';
+    if (pregenAbort.current) pregenAbort.current.abort();
     if (clearBuffer) clearBuffer();
   }, [clearBuffer]);
 
@@ -194,6 +285,7 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
     coachError,
     sessionStartedAt,
     repCalibration,
+    hasCandidatesReady,
     calibrate,
     requestSuggestion,
     saveCall,
