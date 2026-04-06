@@ -150,7 +150,7 @@ export default function HomePage() {
   const [calibrating, setCalibrating] = useState(false);
   const [calibrationDone, setCalibratedDone] = useState(false);
   const [isSessionActive, setIsSessionActive] = useState(false);
-  const [activeStage, setActiveStage] = useState('connecting');
+  const [activeStage, setActiveStage] = useState('connect');
   const [mode, setMode] = useState('listen'); // 'listen' | 'suggest'
   const calibrationTimerRef = useRef(null);
 
@@ -219,7 +219,7 @@ export default function HomePage() {
     setCalibrating(false);
     setCalibratedDone(false);
     setIsSessionActive(true);
-    setActiveStage('connecting');
+    setActiveStage('connect');
     setMode('listen');
   }, []);
 
@@ -228,7 +228,7 @@ export default function HomePage() {
     setCalibrating(false);
     setCalibratedDone(false);
     setIsSessionActive(true);
-    setActiveStage('connecting');
+    setActiveStage('connect');
     setMode('listen');
   }, [audio]);
 
