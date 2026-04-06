@@ -127,21 +127,11 @@ export default function Suggestions({ suggestions, isActive, isProcessing }) {
     );
   }
 
-  const [latest, ...previous] = suggestions;
-  const recentPrevious = previous.slice(0, 3);
+  const [latest] = suggestions;
 
   return (
     <div style={styles.container}>
       <SuggestionCard suggestion={latest} isPrimary />
-
-      {recentPrevious.length > 0 && (
-        <>
-          <div style={styles.previousLabel}>Previous</div>
-          {recentPrevious.map((s, i) => (
-            <SuggestionCard key={i} suggestion={s} isPrimary={false} />
-          ))}
-        </>
-      )}
     </div>
   );
 }

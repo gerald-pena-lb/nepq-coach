@@ -22,6 +22,8 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
   const lastSuggestionTime = useRef(0);
   const sendIntervalRef = useRef(null);
   const isGenerating = useRef(false);
+  const lastDetectedSpeaker = useRef(null); // 'rep' | 'prospect' | null
+  const suggestionLocked = useRef(false); // true when rep is talking — keep current suggestion
 
   const transcribe = useCallback(async (blob) => {
     const formData = new FormData();
@@ -57,6 +59,9 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
   const generateSuggestion = useCallback(async () => {
     if (isGenerating.current) return;
 
+    // If the rep is talking and we already have a locked suggestion, skip entirely
+    if (suggestionLocked.current) return;
+
     const text = pendingText.current.trim();
     if (text.length < MIN_TEXT_LENGTH) return;
 
@@ -79,9 +84,17 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
       });
 
       if (res.ok) {
-        const suggestion = await res.json();
-        if (suggestion && suggestion.suggestions) {
-          setSuggestions((prev) => [suggestion, ...prev]);
+        const data = await res.json();
+
+        if (data.skipped || data.speaker === 'rep') {
+          // Rep is talking — lock the current suggestion so it doesn't change
+          lastDetectedSpeaker.current = 'rep';
+          suggestionLocked.current = true;
+        } else if (data.suggestions && data.suggestions.length > 0) {
+          // Prospect spoke — show new suggestion and unlock
+          lastDetectedSpeaker.current = 'prospect';
+          suggestionLocked.current = false;
+          setSuggestions((prev) => [data, ...prev]);
           lastSuggestionTime.current = Date.now();
         }
       } else {
@@ -136,6 +149,12 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
 
     // Accumulate pending text
     pendingText.current += ' ' + delta;
+
+    // If the suggestion is locked (rep was talking) and new speech comes in,
+    // unlock so the next silence-debounce can check if the prospect is now speaking
+    if (suggestionLocked.current) {
+      suggestionLocked.current = false;
+    }
 
     // Debounce: reset silence timer
     if (silenceTimer.current) clearTimeout(silenceTimer.current);
@@ -193,6 +212,8 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
     pendingText.current = '';
     conversationHistory.current = [];
     lastSuggestionTime.current = 0;
+    lastDetectedSpeaker.current = null;
+    suggestionLocked.current = false;
     if (clearBuffer) clearBuffer();
   }, [clearBuffer]);
 

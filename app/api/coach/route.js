@@ -30,7 +30,7 @@ export async function POST(request) {
       ? `\n\n[REP VOICE CALIBRATION — the rep said this before the call started: "${repCalibration}"]\nUse this to identify which parts of the transcript are the rep vs the prospect.`
       : '';
 
-    const userMessage = `Conversation so far:\n${historyText}\n\nLatest speech: "${latestText}"${calibrationContext}\n\nAnalyze who just spoke (rep or prospect). If the prospect spoke, suggest what the rep should say next. If the rep just spoke, indicate you're waiting for the prospect.`;
+    const userMessage = `Conversation so far:\n${historyText}\n\nLatest speech: "${latestText}"${calibrationContext}\n\nFirst, determine who just spoke — the rep or the prospect. Always include a "speaker" field ("rep" or "prospect") in your JSON response.\n\nIf the PROSPECT just spoke, suggest exactly ONE thing the rep should say next.\nIf the REP just spoke, return an empty suggestions array with skipReason "rep_speaking".`;
 
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
@@ -66,12 +66,14 @@ export async function POST(request) {
     // If Claude detected the rep was speaking, skip this suggestion
     if (
       parsed.skipReason === 'rep_speaking' ||
+      parsed.speaker === 'rep' ||
       (parsed.suggestions && parsed.suggestions.length === 0)
     ) {
-      return NextResponse.json({ skipped: true, reason: 'rep_speaking' });
+      return NextResponse.json({ skipped: true, speaker: 'rep', reason: 'rep_speaking' });
     }
 
-    return NextResponse.json(parsed);
+    // Always include speaker field in the response
+    return NextResponse.json({ ...parsed, speaker: parsed.speaker || 'prospect' });
   } catch (err) {
     console.error('Coaching error:', err);
 
