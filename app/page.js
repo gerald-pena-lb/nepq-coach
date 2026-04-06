@@ -4,10 +4,13 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useAudioCapture } from '@/hooks/useAudioCapture';
 import { useCoachingSession } from '@/hooks/useCoachingSession';
+import { STAGES } from '@/lib/salesFramework';
 import AudioSourceSelector from '@/components/AudioSourceSelector';
 import MeetingControls from '@/components/MeetingControls';
 import Transcript from '@/components/Transcript';
 import Suggestions from '@/components/Suggestions';
+import StageSelector from '@/components/StageSelector';
+import ModeToggle from '@/components/ModeToggle';
 
 const styles = {
   page: {
@@ -147,6 +150,8 @@ export default function HomePage() {
   const [calibrating, setCalibrating] = useState(false);
   const [calibrationDone, setCalibratedDone] = useState(false);
   const [isSessionActive, setIsSessionActive] = useState(false);
+  const [activeStage, setActiveStage] = useState('connecting');
+  const [mode, setMode] = useState('listen'); // 'listen' | 'suggest'
   const calibrationTimerRef = useRef(null);
 
   const audio = useAudioCapture();
@@ -156,12 +161,34 @@ export default function HomePage() {
     isCapturing: isSessionActive && audio.isCapturing,
   });
 
+  // When user switches to "suggest" mode, immediately request a suggestion
+  const handleModeChange = useCallback(
+    (newMode) => {
+      setMode(newMode);
+      if (newMode === 'suggest' && isSessionActive) {
+        const stageLabel = STAGES.find((s) => s.id === activeStage)?.label || activeStage;
+        session.requestSuggestion(stageLabel);
+        // Auto-switch back to listen after suggestion is generated
+        // (the user can tap suggest again when needed)
+      }
+    },
+    [isSessionActive, activeStage, session]
+  );
+
+  // Once suggestion finishes processing, auto-switch back to listen mode
+  useEffect(() => {
+    if (mode === 'suggest' && !session.isProcessing && session.suggestions.length > 0) {
+      setMode('listen');
+    }
+  }, [mode, session.isProcessing, session.suggestions.length]);
+
   const handleStart = useCallback(() => {
     setShowSourcePicker(true);
   }, []);
 
   const handleStop = useCallback(async () => {
     setIsSessionActive(false);
+    setMode('listen');
     audio.stop();
     await session.saveCall();
   }, [audio, session]);
@@ -181,7 +208,6 @@ export default function HomePage() {
   );
 
   const finishCalibration = useCallback(async () => {
-    // Grab current audio and transcribe it as the rep's voice sample
     const blob = audio.getWavBlob();
     if (blob && blob.size > 1000) {
       await session.calibrate(blob);
@@ -194,6 +220,8 @@ export default function HomePage() {
     setCalibrating(false);
     setCalibratedDone(false);
     setIsSessionActive(true);
+    setActiveStage('connecting');
+    setMode('listen');
   }, []);
 
   const skipCalibration = useCallback(() => {
@@ -201,6 +229,8 @@ export default function HomePage() {
     setCalibrating(false);
     setCalibratedDone(false);
     setIsSessionActive(true);
+    setActiveStage('connecting');
+    setMode('listen');
   }, [audio]);
 
   // Auto-finish calibration after 5 seconds of recording
@@ -212,6 +242,29 @@ export default function HomePage() {
       return () => clearTimeout(calibrationTimerRef.current);
     }
   }, [calibrating, calibrationDone, audio.isCapturing, finishCalibration]);
+
+  const coachPanel = (
+    <div style={styles.panel}>
+      {!isMobile && <div style={styles.panelLabel}>Say This Next</div>}
+      <StageSelector
+        activeStage={activeStage}
+        onSelect={setActiveStage}
+        disabled={!isSessionActive}
+      />
+      <Suggestions
+        suggestions={session.suggestions}
+        isActive={isSessionActive}
+        isProcessing={session.isProcessing}
+        mode={mode}
+      />
+      <ModeToggle
+        mode={mode}
+        onModeChange={handleModeChange}
+        disabled={!isSessionActive}
+        isProcessing={session.isProcessing}
+      />
+    </div>
+  );
 
   return (
     <div style={styles.page}>
@@ -248,11 +301,7 @@ export default function HomePage() {
           </div>
 
           {tab === 'coach' ? (
-            <Suggestions
-              suggestions={session.suggestions}
-              isActive={isSessionActive}
-              isProcessing={session.isProcessing}
-            />
+            coachPanel
           ) : (
             <Transcript
               transcripts={session.transcripts}
@@ -270,14 +319,7 @@ export default function HomePage() {
             />
           </div>
           <div style={styles.divider} />
-          <div style={styles.panel}>
-            <div style={styles.panelLabel}>Say This Next</div>
-            <Suggestions
-              suggestions={session.suggestions}
-              isActive={isSessionActive}
-              isProcessing={session.isProcessing}
-            />
-          </div>
+          {coachPanel}
         </div>
       )}
 

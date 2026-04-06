@@ -50,88 +50,45 @@ const styles = {
     color: 'var(--orange)',
     fontStyle: 'italic',
   },
-  previousLabel: {
-    fontSize: 12,
-    fontWeight: 600,
-    color: 'var(--text-muted)',
-    marginTop: 20,
-    marginBottom: 8,
-    textTransform: 'uppercase',
-    letterSpacing: '0.05em',
-  },
-  previousCard: {
-    background: 'var(--bg-card)',
-    borderRadius: 8,
-    borderLeft: '3px solid var(--border)',
-    padding: '10px 12px',
-    marginBottom: 8,
-    opacity: 0.6,
-  },
-  previousText: {
-    fontSize: 14,
-    lineHeight: 1.4,
-    color: 'var(--text)',
-  },
-  previousStage: {
-    fontSize: 10,
-    color: 'var(--text-muted)',
-    marginBottom: 4,
-  },
 };
 
-function SuggestionCard({ suggestion, isPrimary }) {
-  if (!suggestion) return null;
-
-  const s = suggestion.suggestions?.[0];
-  if (!s) return null;
-
-  if (!isPrimary) {
-    return (
-      <div style={styles.previousCard}>
-        <div style={styles.previousStage}>{suggestion.stage}</div>
-        <div style={styles.previousText}>&ldquo;{s.text}&rdquo;</div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="fade-in" style={styles.card}>
-      <div style={styles.stage}>{suggestion.stage}</div>
-      <div style={styles.text}>&ldquo;{s.text}&rdquo;</div>
-      {s.why && (
-        <div style={styles.why}>
-          <strong>Why it works:</strong> {s.why}
-        </div>
-      )}
-      {suggestion.prospectSentiment && (
-        <div style={styles.sentiment}>
-          Prospect mood: {suggestion.prospectSentiment}
-        </div>
-      )}
-    </div>
-  );
-}
-
-export default function Suggestions({ suggestions, isActive, isProcessing }) {
+export default function Suggestions({ suggestions, isActive, isProcessing, mode }) {
   if (suggestions.length === 0) {
     return (
       <div style={styles.container}>
         <div style={styles.empty}>
           {isProcessing
-            ? 'Analyzing conversation...'
-            : isActive
-              ? 'Waiting for the prospect to speak...'
-              : 'Coaching suggestions will appear here during your call.'}
+            ? 'Generating suggestion...'
+            : !isActive
+              ? 'Coaching suggestions will appear here during your call.'
+              : mode === 'listen'
+                ? 'Listening... tap SUGGEST when you need coaching.'
+                : 'Tap SUGGEST to get a coaching recommendation.'}
         </div>
       </div>
     );
   }
 
   const [latest] = suggestions;
+  const s = latest?.suggestions?.[0];
+  if (!s) return null;
 
   return (
     <div style={styles.container}>
-      <SuggestionCard suggestion={latest} isPrimary />
+      <div className="fade-in" style={styles.card}>
+        <div style={styles.stage}>{latest.stage}</div>
+        <div style={styles.text}>&ldquo;{s.text}&rdquo;</div>
+        {s.why && (
+          <div style={styles.why}>
+            <strong>Why it works:</strong> {s.why}
+          </div>
+        )}
+        {latest.prospectSentiment && (
+          <div style={styles.sentiment}>
+            Prospect mood: {latest.prospectSentiment}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -3,9 +3,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 
 const SEND_INTERVAL_MS = 1500;
-const SILENCE_DEBOUNCE_MS = 500;
-const MIN_SUGGESTION_INTERVAL_MS = 3000;
-const MIN_TEXT_LENGTH = 10;
 
 export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
   const [transcripts, setTranscripts] = useState([]);
@@ -18,12 +15,8 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
   const previousFullTranscript = useRef('');
   const pendingText = useRef('');
   const conversationHistory = useRef([]);
-  const silenceTimer = useRef(null);
-  const lastSuggestionTime = useRef(0);
   const sendIntervalRef = useRef(null);
   const isGenerating = useRef(false);
-  const lastDetectedSpeaker = useRef(null); // 'rep' | 'prospect' | null
-  const suggestionLocked = useRef(false); // true when rep is talking — keep current suggestion
 
   const transcribe = useCallback(async (blob) => {
     const formData = new FormData();
@@ -56,17 +49,17 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
     [transcribe]
   );
 
-  const generateSuggestion = useCallback(async () => {
+  // Manual trigger — called when user clicks "Suggest"
+  const requestSuggestion = useCallback(async (currentStage) => {
     if (isGenerating.current) return;
 
-    // If the rep is talking and we already have a locked suggestion, skip entirely
-    if (suggestionLocked.current) return;
-
-    const text = pendingText.current.trim();
-    if (text.length < MIN_TEXT_LENGTH) return;
-
-    const now = Date.now();
-    if (now - lastSuggestionTime.current < MIN_SUGGESTION_INTERVAL_MS) return;
+    // Use pending text or fall back to recent conversation history
+    let text = pendingText.current.trim();
+    if (text.length < 5) {
+      const recent = conversationHistory.current.slice(-5);
+      text = recent.map((t) => t.text).join(' ').trim();
+    }
+    if (text.length < 5) return;
 
     isGenerating.current = true;
     setIsProcessing(true);
@@ -80,22 +73,14 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
           conversationHistory: conversationHistory.current,
           latestText: text,
           repCalibration: repCalibration,
+          currentStage: currentStage,
         }),
       });
 
       if (res.ok) {
         const data = await res.json();
-
-        if (data.skipped || data.speaker === 'rep') {
-          // Rep is talking — lock the current suggestion so it doesn't change
-          lastDetectedSpeaker.current = 'rep';
-          suggestionLocked.current = true;
-        } else if (data.suggestions && data.suggestions.length > 0) {
-          // Prospect spoke — show new suggestion and unlock
-          lastDetectedSpeaker.current = 'prospect';
-          suggestionLocked.current = false;
+        if (data.suggestions && data.suggestions.length > 0) {
           setSuggestions((prev) => [data, ...prev]);
-          lastSuggestionTime.current = Date.now();
         }
       } else {
         const errData = await res.json().catch(() => ({}));
@@ -149,17 +134,7 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
 
     // Accumulate pending text
     pendingText.current += ' ' + delta;
-
-    // If the suggestion is locked (rep was talking) and new speech comes in,
-    // unlock so the next silence-debounce can check if the prospect is now speaking
-    if (suggestionLocked.current) {
-      suggestionLocked.current = false;
-    }
-
-    // Debounce: reset silence timer
-    if (silenceTimer.current) clearTimeout(silenceTimer.current);
-    silenceTimer.current = setTimeout(generateSuggestion, SILENCE_DEBOUNCE_MS);
-  }, [isCapturing, getWavBlob, transcribe, generateSuggestion]);
+  }, [isCapturing, getWavBlob, transcribe]);
 
   // Start/stop the send interval when capturing changes
   useEffect(() => {
@@ -173,11 +148,9 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
 
       return () => {
         clearInterval(sendIntervalRef.current);
-        if (silenceTimer.current) clearTimeout(silenceTimer.current);
       };
     } else {
       if (sendIntervalRef.current) clearInterval(sendIntervalRef.current);
-      if (silenceTimer.current) clearTimeout(silenceTimer.current);
     }
   }, [isCapturing, processAudio]);
 
@@ -211,9 +184,6 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
     previousFullTranscript.current = '';
     pendingText.current = '';
     conversationHistory.current = [];
-    lastSuggestionTime.current = 0;
-    lastDetectedSpeaker.current = null;
-    suggestionLocked.current = false;
     if (clearBuffer) clearBuffer();
   }, [clearBuffer]);
 
@@ -225,6 +195,7 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing }) {
     sessionStartedAt,
     repCalibration,
     calibrate,
+    requestSuggestion,
     saveCall,
     reset,
   };

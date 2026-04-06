@@ -13,10 +13,10 @@ export async function POST(request) {
   }
 
   try {
-    const { conversationHistory, latestText, repCalibration } =
+    const { conversationHistory, latestText, repCalibration, currentStage } =
       await request.json();
 
-    if (!latestText || latestText.trim().length < 10) {
+    if (!latestText || latestText.trim().length < 5) {
       return NextResponse.json(
         { error: 'Not enough text to generate coaching' },
         { status: 400 }
@@ -27,14 +27,18 @@ export async function POST(request) {
     const historyText = recentHistory.map((t) => t.text).join('\n');
 
     const calibrationContext = repCalibration
-      ? `\n\n[REP VOICE CALIBRATION — the rep said this before the call started: "${repCalibration}"]\nUse this to identify which parts of the transcript are the rep vs the prospect.`
+      ? `\n\n[REP VOICE CALIBRATION: "${repCalibration}"]`
       : '';
 
-    const userMessage = `Conversation so far:\n${historyText}\n\nLatest speech: "${latestText}"${calibrationContext}\n\nFirst, determine who just spoke — the rep or the prospect. Always include a "speaker" field ("rep" or "prospect") in your JSON response.\n\nIf the PROSPECT just spoke, suggest exactly ONE thing the rep should say next.\nIf the REP just spoke, return an empty suggestions array with skipReason "rep_speaking".`;
+    const stageContext = currentStage
+      ? `\n\nThe rep has indicated they are currently in: ${currentStage}. Generate your suggestion for THIS stage specifically. Do not suggest moving to a different stage unless the conversation clearly warrants it.`
+      : '';
+
+    const userMessage = `Conversation so far:\n${historyText}\n\nLatest speech: "${latestText}"${calibrationContext}${stageContext}\n\nThe rep is asking for a coaching suggestion right now. Suggest exactly ONE thing the rep should say next, appropriate for the current stage.`;
 
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 500,
+      max_tokens: 300,
       system: NEPQ_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userMessage }],
     });
@@ -51,7 +55,7 @@ export async function POST(request) {
       parsed = JSON.parse(cleaned);
     } catch {
       parsed = {
-        stage: 'COACHING',
+        stage: currentStage || 'COACHING',
         suggestions: [
           {
             text: responseText.slice(0, 200),
@@ -63,17 +67,18 @@ export async function POST(request) {
       };
     }
 
-    // If Claude detected the rep was speaking, skip this suggestion
-    if (
-      parsed.skipReason === 'rep_speaking' ||
-      parsed.speaker === 'rep' ||
-      (parsed.suggestions && parsed.suggestions.length === 0)
-    ) {
-      return NextResponse.json({ skipped: true, speaker: 'rep', reason: 'rep_speaking' });
+    // Ensure there's always at least one suggestion
+    if (!parsed.suggestions || parsed.suggestions.length === 0) {
+      parsed.suggestions = [
+        {
+          text: responseText.slice(0, 200),
+          why: '',
+          priority: 1,
+        },
+      ];
     }
 
-    // Always include speaker field in the response
-    return NextResponse.json({ ...parsed, speaker: parsed.speaker || 'prospect' });
+    return NextResponse.json(parsed);
   } catch (err) {
     console.error('Coaching error:', err);
 
