@@ -107,6 +107,16 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
     }
   }, [repCalibration, currentStage]);
 
+  // Helper to get current conversation text
+  const getConversationText = useCallback(() => {
+    let text = pendingText.current.trim();
+    if (text.length < 5) {
+      const recent = conversationHistory.current.slice(-5);
+      text = recent.map((t) => t.text).join(' ').trim();
+    }
+    return text;
+  }, []);
+
   // When user taps "Suggest" — instantly show cached candidate, or generate on demand
   const requestSuggestion = useCallback(async () => {
     // If we have fresh candidates, show the best one instantly
@@ -121,11 +131,7 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
     }
 
     // Fallback: generate on demand
-    let text = pendingText.current.trim();
-    if (text.length < 5) {
-      const recent = conversationHistory.current.slice(-5);
-      text = recent.map((t) => t.text).join(' ').trim();
-    }
+    const text = getConversationText();
     if (text.length < 5) return;
 
     setIsProcessing(true);
@@ -159,7 +165,48 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
       pendingText.current = '';
       setIsProcessing(false);
     }
-  }, [repCalibration, currentStage]);
+  }, [repCalibration, currentStage, getConversationText]);
+
+  // "Go Deeper" — takes the current suggestion and generates a deeper follow-up
+  const goDeeper = useCallback(async () => {
+    const currentSuggestion = suggestions[0]?.suggestions?.[0]?.text;
+    if (!currentSuggestion) return;
+
+    const text = getConversationText() || conversationHistory.current.slice(-5).map((t) => t.text).join(' ');
+
+    setIsProcessing(true);
+    setCoachError(null);
+
+    try {
+      const res = await fetch('/api/coach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationHistory: conversationHistory.current,
+          latestText: text,
+          repCalibration: repCalibration,
+          currentStage: currentStage,
+          goDeeper: true,
+          previousSuggestion: currentSuggestion,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.suggestions && data.suggestions.length > 0) {
+          setSuggestions((prev) => [data, ...prev]);
+        }
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setCoachError(errData.error || `Coach API error: ${res.status}`);
+      }
+    } catch (err) {
+      console.error('Go deeper failed:', err);
+      setCoachError('Network error reaching coaching API');
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [suggestions, repCalibration, currentStage, getConversationText]);
 
   const processAudio = useCallback(async () => {
     if (!isCapturing) return;
@@ -288,6 +335,7 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
     hasCandidatesReady,
     calibrate,
     requestSuggestion,
+    goDeeper,
     saveCall,
     reset,
   };

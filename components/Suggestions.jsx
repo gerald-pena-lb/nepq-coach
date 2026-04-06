@@ -43,16 +43,31 @@ const styles = {
     fontSize: 13,
     color: 'var(--text-muted)',
     lineHeight: 1.4,
-    marginBottom: 8,
+    marginBottom: 10,
   },
   sentiment: {
     fontSize: 12,
     color: 'var(--orange)',
     fontStyle: 'italic',
+    marginBottom: 12,
+  },
+  deeperBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '8px 14px',
+    borderRadius: 8,
+    fontSize: 13,
+    fontWeight: 600,
+    color: 'var(--orange)',
+    background: 'rgba(251, 146, 60, 0.1)',
+    border: '1px solid rgba(251, 146, 60, 0.3)',
+    cursor: 'pointer',
+    transition: 'all 0.15s',
   },
 };
 
-export default function Suggestions({ suggestions, isActive, isProcessing, mode, hasCandidatesReady }) {
+export default function Suggestions({ suggestions, isActive, isProcessing, hasCandidatesReady, onGoDeeper }) {
   if (suggestions.length === 0) {
     let message;
     if (isProcessing) {
@@ -91,6 +106,16 @@ export default function Suggestions({ suggestions, isActive, isProcessing, mode,
             Prospect mood: {latest.prospectSentiment}
           </div>
         )}
+        <button
+          style={{
+            ...styles.deeperBtn,
+            opacity: isProcessing ? 0.5 : 1,
+          }}
+          onClick={onGoDeeper}
+          disabled={isProcessing}
+        >
+          {isProcessing ? 'Thinking...' : 'Go Deeper'}
+        </button>
       </div>
     </div>
   );

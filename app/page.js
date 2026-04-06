@@ -254,8 +254,8 @@ export default function HomePage() {
         suggestions={session.suggestions}
         isActive={isSessionActive}
         isProcessing={session.isProcessing}
-        mode={mode}
         hasCandidatesReady={session.hasCandidatesReady}
+        onGoDeeper={session.goDeeper}
       />
       <ModeToggle
         mode={mode}
