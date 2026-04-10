@@ -21,6 +21,7 @@ export async function POST(request) {
     const elevenLabsForm = new FormData();
     elevenLabsForm.append('file', audioFile, 'audio.wav');
     elevenLabsForm.append('model_id', 'scribe_v1');
+    elevenLabsForm.append('language_code', 'eng');
 
     const response = await fetch(
       'https://api.elevenlabs.io/v1/speech-to-text',
