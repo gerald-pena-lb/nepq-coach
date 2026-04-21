@@ -21,8 +21,10 @@ const styles = {
     background: 'var(--bg-card)',
     borderRadius: 'var(--radius)',
     borderLeft: '4px solid var(--accent)',
+    border: '1px solid var(--border)',
     padding: 16,
     marginBottom: 12,
+    boxShadow: 'var(--shadow-sm)',
   },
   stage: {
     fontSize: 11,
@@ -42,8 +44,10 @@ const styles = {
   why: {
     fontSize: 13,
     color: 'var(--text-muted)',
-    lineHeight: 1.4,
+    lineHeight: 1.5,
     marginBottom: 10,
+    paddingTop: 8,
+    borderTop: '1px solid var(--border)',
   },
   sentiment: {
     fontSize: 12,
@@ -60,8 +64,8 @@ const styles = {
     fontSize: 13,
     fontWeight: 600,
     color: 'var(--orange)',
-    background: 'rgba(251, 146, 60, 0.1)',
-    border: '1px solid rgba(251, 146, 60, 0.3)',
+    background: 'rgba(245, 158, 11, 0.1)',
+    border: '1px solid rgba(245, 158, 11, 0.3)',
     cursor: 'pointer',
     transition: 'all 0.15s',
   },
@@ -71,7 +75,7 @@ export default function Suggestions({ suggestions, isActive, isProcessing, hasCa
   if (suggestions.length === 0) {
     let message;
     if (isProcessing) {
-      message = 'Generating suggestion...';
+      message = 'Jeremy is thinking...';
     } else if (!isActive) {
       message = 'Coaching suggestions will appear here during your call.';
     } else if (hasCandidatesReady) {
@@ -96,14 +100,14 @@ export default function Suggestions({ suggestions, isActive, isProcessing, hasCa
       <div className="fade-in" style={styles.card}>
         <div style={styles.stage}>{latest.stage}</div>
         <div style={styles.text}>&ldquo;{s.text}&rdquo;</div>
-        {s.why && (
-          <div style={styles.why}>
-            <strong>Why it works:</strong> {s.why}
-          </div>
-        )}
         {latest.prospectSentiment && (
           <div style={styles.sentiment}>
             Prospect mood: {latest.prospectSentiment}
+          </div>
+        )}
+        {s.why && (
+          <div style={styles.why}>
+            <strong>Why it works:</strong> {s.why}
           </div>
         )}
         <button

@@ -107,7 +107,7 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
     }
   }, [repCalibration, currentStage]);
 
-  // Helper to get current conversation text
+  // Helper to get current conversation text (for pregen trigger only)
   const getConversationText = useCallback(() => {
     let text = pendingText.current.trim();
     if (text.length < 5) {
@@ -130,9 +130,10 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
       return;
     }
 
-    // Fallback: generate on demand
-    const text = getConversationText();
-    if (text.length < 5) return;
+    // Fallback: generate on demand using the full conversation history
+    if (conversationHistory.current.length === 0 && pendingText.current.trim().length < 5) {
+      return;
+    }
 
     setIsProcessing(true);
     setCoachError(null);
@@ -143,7 +144,7 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           conversationHistory: conversationHistory.current,
-          latestText: text,
+          latestText: pendingText.current.trim() || conversationHistory.current.slice(-1)[0]?.text || '',
           repCalibration: repCalibration,
           currentStage: currentStage,
         }),
@@ -165,14 +166,12 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
       pendingText.current = '';
       setIsProcessing(false);
     }
-  }, [repCalibration, currentStage, getConversationText]);
+  }, [repCalibration, currentStage]);
 
   // "Go Deeper" — takes the current suggestion and generates a deeper follow-up
   const goDeeper = useCallback(async () => {
     const currentSuggestion = suggestions[0]?.suggestions?.[0]?.text;
     if (!currentSuggestion) return;
-
-    const text = getConversationText() || conversationHistory.current.slice(-5).map((t) => t.text).join(' ');
 
     setIsProcessing(true);
     setCoachError(null);
@@ -183,7 +182,7 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           conversationHistory: conversationHistory.current,
-          latestText: text,
+          latestText: pendingText.current.trim() || conversationHistory.current.slice(-1)[0]?.text || '',
           repCalibration: repCalibration,
           currentStage: currentStage,
           goDeeper: true,
@@ -206,7 +205,7 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
     } finally {
       setIsProcessing(false);
     }
-  }, [suggestions, repCalibration, currentStage, getConversationText]);
+  }, [suggestions, repCalibration, currentStage]);
 
   const processAudio = useCallback(async () => {
     if (!isCapturing) return;

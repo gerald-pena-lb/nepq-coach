@@ -4,7 +4,8 @@ const styles = {
   overlay: {
     position: 'fixed',
     inset: 0,
-    background: 'rgba(0,0,0,0.6)',
+    background: 'rgba(15, 23, 42, 0.4)',
+    backdropFilter: 'blur(2px)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -17,30 +18,34 @@ const styles = {
     padding: 24,
     maxWidth: 400,
     width: '100%',
+    boxShadow: 'var(--shadow-md)',
+    border: '1px solid var(--border)',
   },
   title: {
     fontSize: 18,
-    fontWeight: 600,
+    fontWeight: 700,
     marginBottom: 4,
+    color: 'var(--text)',
   },
   subtitle: {
     fontSize: 13,
     color: 'var(--text-muted)',
     marginBottom: 20,
+    lineHeight: 1.5,
   },
   btn: {
     display: 'block',
     width: '100%',
     padding: '14px 16px',
-    borderRadius: 8,
+    borderRadius: 10,
     fontSize: 15,
     fontWeight: 500,
     textAlign: 'left',
     marginBottom: 10,
     border: '1px solid var(--border)',
-    background: 'var(--bg)',
+    background: 'var(--bg-subtle)',
     color: 'var(--text)',
-    transition: 'border-color 0.15s',
+    transition: 'all 0.15s',
   },
   btnLabel: {
     display: 'block',
@@ -50,6 +55,7 @@ const styles = {
   btnDesc: {
     fontSize: 12,
     color: 'var(--text-muted)',
+    lineHeight: 1.4,
   },
   cancel: {
     display: 'block',
@@ -70,14 +76,20 @@ export default function AudioSourceSelector({ onSelectMic, onSelectTab, onCancel
       <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div style={styles.title}>Choose Audio Source</div>
         <div style={styles.subtitle}>
-          How should NEPQ Coach hear the conversation?
+          How should Jeremy hear the conversation?
         </div>
 
         <button
           style={styles.btn}
           onClick={onSelectMic}
-          onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--accent)')}
-          onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border)')}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = 'var(--accent)';
+            e.currentTarget.style.background = 'var(--accent-dim)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = 'var(--border)';
+            e.currentTarget.style.background = 'var(--bg-subtle)';
+          }}
         >
           <span style={styles.btnLabel}>Microphone</span>
           <span style={styles.btnDesc}>
@@ -88,8 +100,14 @@ export default function AudioSourceSelector({ onSelectMic, onSelectTab, onCancel
         <button
           style={styles.btn}
           onClick={onSelectTab}
-          onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--accent)')}
-          onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border)')}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = 'var(--accent)';
+            e.currentTarget.style.background = 'var(--accent-dim)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = 'var(--border)';
+            e.currentTarget.style.background = 'var(--bg-subtle)';
+          }}
         >
           <span style={styles.btnLabel}>Browser Tab Audio</span>
           <span style={styles.btnDesc}>

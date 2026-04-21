@@ -1,7 +1,7 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'NEPQ Coach',
+  title: 'Jeremy — NEPQ Sales Coach',
   description: 'Real-time AI sales coaching powered by the NEPQ framework',
 };
 

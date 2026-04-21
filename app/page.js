@@ -17,15 +17,16 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     height: '100dvh',
-    background: 'var(--bg)',
+    background: 'var(--bg-subtle)',
   },
   tabs: {
     display: 'flex',
     borderBottom: '1px solid var(--border)',
+    background: 'var(--bg)',
   },
   tab: {
     flex: 1,
-    padding: '10px 0',
+    padding: '12px 0',
     fontSize: 13,
     fontWeight: 600,
     textAlign: 'center',
@@ -48,14 +49,16 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
+    background: 'var(--bg-subtle)',
   },
   panelLabel: {
     fontSize: 11,
     fontWeight: 700,
     color: 'var(--text-muted)',
-    padding: '10px 16px 0',
+    padding: '12px 16px 4px',
     letterSpacing: '0.05em',
     textTransform: 'uppercase',
+    background: 'var(--bg)',
   },
   divider: {
     width: 1,
@@ -64,7 +67,8 @@ const styles = {
   calibrationOverlay: {
     position: 'fixed',
     inset: 0,
-    background: 'rgba(0,0,0,0.7)',
+    background: 'rgba(15, 23, 42, 0.4)',
+    backdropFilter: 'blur(2px)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -78,11 +82,14 @@ const styles = {
     maxWidth: 420,
     width: '100%',
     textAlign: 'center',
+    boxShadow: 'var(--shadow-md)',
+    border: '1px solid var(--border)',
   },
   calibrationTitle: {
     fontSize: 18,
-    fontWeight: 600,
+    fontWeight: 700,
     marginBottom: 8,
+    color: 'var(--text)',
   },
   calibrationDesc: {
     fontSize: 14,
@@ -105,9 +112,10 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+    color: 'var(--text)',
   },
   calibrationBtn: {
-    padding: '10px 24px',
+    padding: '12px 28px',
     borderRadius: 8,
     fontSize: 14,
     fontWeight: 600,
@@ -115,22 +123,25 @@ const styles = {
     background: 'var(--accent)',
     border: 'none',
     marginTop: 8,
+    boxShadow: 'var(--shadow-sm)',
   },
   calibrationSuccess: {
     fontSize: 14,
     color: 'var(--green)',
     marginBottom: 12,
+    fontWeight: 500,
   },
   calibrationSample: {
     fontSize: 13,
     color: 'var(--text-muted)',
     fontStyle: 'italic',
-    padding: '8px 12px',
-    background: 'var(--bg)',
+    padding: '10px 14px',
+    background: 'var(--bg-subtle)',
     borderRadius: 8,
     marginBottom: 16,
     maxHeight: 60,
     overflow: 'hidden',
+    border: '1px solid var(--border)',
   },
   skipBtn: {
     padding: '8px 16px',
@@ -163,7 +174,6 @@ export default function HomePage() {
     currentStage: stageLabel,
   });
 
-  // When user taps "suggest", instantly show cached candidate or generate
   const handleModeChange = useCallback(
     (newMode) => {
       setMode(newMode);
@@ -174,7 +184,6 @@ export default function HomePage() {
     [isSessionActive, session]
   );
 
-  // Auto-switch back to listen once suggestion appears
   useEffect(() => {
     if (mode === 'suggest' && !session.isProcessing && session.suggestions.length > 0) {
       setMode('listen');
@@ -232,7 +241,6 @@ export default function HomePage() {
     setMode('listen');
   }, [audio]);
 
-  // Auto-finish calibration after 5 seconds of recording
   useEffect(() => {
     if (calibrating && !calibrationDone && audio.isCapturing) {
       calibrationTimerRef.current = setTimeout(() => {
@@ -341,8 +349,8 @@ export default function HomePage() {
                   Voice Calibration
                 </div>
                 <div style={styles.calibrationDesc}>
-                  Say a few sentences so the AI can learn your voice. This helps
-                  it distinguish you from the prospect during the call.
+                  Say a few sentences in English so Jeremy can learn your voice.
+                  This helps distinguish you from the prospect during the call.
                 </div>
                 <div style={styles.calibrationStatus}>
                   <span className="pulse" style={styles.calibrationDot} />
@@ -364,7 +372,7 @@ export default function HomePage() {
                 {session.repCalibration ? (
                   <>
                     <div style={styles.calibrationSuccess}>
-                      Got it! The AI will use this to identify your voice.
+                      Got it! Jeremy will use this to identify your voice.
                     </div>
                     <div style={styles.calibrationSample}>
                       &ldquo;{session.repCalibration}&rdquo;
@@ -372,7 +380,7 @@ export default function HomePage() {
                   </>
                 ) : (
                   <div style={styles.calibrationDesc}>
-                    Could not capture clear speech. The AI will use conversation
+                    Could not capture clear speech. Jeremy will use conversation
                     context to identify speakers instead.
                   </div>
                 )}

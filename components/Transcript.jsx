@@ -24,14 +24,16 @@ const styles = {
     lineHeight: 1.6,
     color: 'var(--text)',
     marginBottom: 8,
-    padding: '6px 10px',
-    borderRadius: 6,
+    padding: '8px 12px',
+    borderRadius: 8,
     background: 'var(--bg-card)',
+    border: '1px solid var(--border)',
   },
   time: {
     fontSize: 11,
     color: 'var(--text-muted)',
     marginRight: 8,
+    fontWeight: 500,
   },
 };
 
@@ -48,7 +50,7 @@ export default function Transcript({ transcripts, isActive }) {
         <div style={styles.empty}>
           {isActive
             ? 'Listening for speech...'
-            : 'Place this device near your meeting and click Start Coaching.'}
+            : 'Start the session to capture the conversation.'}
         </div>
       </div>
     );

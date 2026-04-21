@@ -6,19 +6,22 @@ const styles = {
   container: {
     display: 'flex',
     gap: 6,
-    padding: '8px 12px',
+    padding: '10px 12px',
     overflowX: 'auto',
     borderBottom: '1px solid var(--border)',
     flexShrink: 0,
+    background: 'var(--bg)',
+    WebkitOverflowScrolling: 'touch',
+    scrollbarWidth: 'none',
   },
   pill: {
-    padding: '6px 12px',
+    padding: '8px 14px',
     borderRadius: 20,
     fontSize: 12,
     fontWeight: 600,
     whiteSpace: 'nowrap',
     border: '1px solid var(--border)',
-    background: 'transparent',
+    background: 'var(--bg-subtle)',
     color: 'var(--text-muted)',
     transition: 'all 0.15s',
   },
@@ -26,6 +29,7 @@ const styles = {
     background: 'var(--accent)',
     borderColor: 'var(--accent)',
     color: '#fff',
+    boxShadow: 'var(--shadow-sm)',
   },
 };
 

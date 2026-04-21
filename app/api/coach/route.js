@@ -4,16 +4,17 @@ import { NEPQ_SYSTEM_PROMPT } from '@/lib/salesFramework';
 
 const anthropic = new Anthropic();
 
-function buildConversationContext(conversationHistory, latestText, repCalibration, currentStage) {
-  const recentHistory = (conversationHistory || []).slice(-20);
-  const historyText = recentHistory.map((t) => t.text).join('\n');
+function buildConversationContext(conversationHistory, repCalibration, currentStage) {
+  // Use the FULL conversation history, not just recent. Limit to last 60 entries to stay within context.
+  const fullHistory = (conversationHistory || []).slice(-60);
+  const historyText = fullHistory.map((t, i) => `[${i + 1}] ${t.text}`).join('\n');
 
   const calibrationContext = repCalibration
-    ? `\n\n[REP VOICE CALIBRATION: "${repCalibration}"]`
+    ? `\n\n[REP VOICE CALIBRATION — this is how the setter sounds: "${repCalibration}"]`
     : '';
 
   const stageContext = currentStage
-    ? `\n\nThe rep has indicated they are currently in: ${currentStage}. Generate suggestions for THIS stage specifically.`
+    ? `\n\nCURRENT STAGE (the setter has set this): ${currentStage}\nGenerate suggestions appropriate for this stage.`
     : '';
 
   return { historyText, calibrationContext, stageContext };
@@ -39,6 +40,19 @@ function parseResponse(responseText, currentStage) {
   }
 }
 
+// Instruction block added to every suggestion request — forces Claude to review the whole conversation
+const WHOLE_CONTEXT_INSTRUCTIONS = `
+## HOW TO ANALYZE
+Before suggesting anything, do this analysis internally:
+
+1. **Read the ENTIRE conversation transcript above from start to finish.** Do not just react to the last thing said.
+2. **Identify the arc:** What has the prospect revealed across the whole conversation? What themes, emotions, specific details have come up more than once? What have they said they want, fear, have tried, or are avoiding?
+3. **Identify what's missing:** Based on the NEPQ framework for the CURRENT STAGE, what has NOT yet been explored that needs to be? What's the biggest gap in what you know about this prospect?
+4. **Identify the best NEPQ move:** Using the NEPQ script for the current stage, what is the single most valuable next question? It should reference specific things the prospect has said across the whole conversation — not just the last sentence.
+5. **Never repeat.** Scan the full transcript — if a similar question was already asked, do NOT suggest it again. Go deeper instead.
+
+Then output your JSON. The suggestion must feel like it was crafted by someone who has been listening to the entire call with full attention, not just the last few seconds.`;
+
 export async function POST(request) {
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json(
@@ -58,23 +72,25 @@ export async function POST(request) {
       previousSuggestion,
     } = await request.json();
 
-    if (!latestText || latestText.trim().length < 5) {
+    // Need at least some conversation history or latest text to work with
+    const hasHistory = Array.isArray(conversationHistory) && conversationHistory.length > 0;
+    const hasLatest = latestText && latestText.trim().length >= 5;
+    if (!hasHistory && !hasLatest) {
       return NextResponse.json(
-        { error: 'Not enough text to generate coaching' },
+        { error: 'Not enough conversation context yet' },
         { status: 400 }
       );
     }
 
     const { historyText, calibrationContext, stageContext } =
-      buildConversationContext(conversationHistory, latestText, repCalibration, currentStage);
+      buildConversationContext(conversationHistory, repCalibration, currentStage);
 
     if (goDeeper && previousSuggestion) {
-      // GO DEEPER mode: take the last suggestion and the full transcript, generate a deeper follow-up
-      const userMessage = `Full conversation transcript:\n${historyText}\n\nLatest speech: "${latestText}"${calibrationContext}${stageContext}\n\nThe rep was previously shown this suggestion:\n"${previousSuggestion}"\n\nThat suggestion was too surface-level. The rep wants to GO DEEPER. Generate a more penetrating, emotionally deeper follow-up question that:\n1. Builds directly on what the prospect has already revealed in the transcript\n2. Uses the prospect's own words and specific details they shared\n3. Pushes past the logical/rational layer into the emotional core\n4. Does NOT repeat anything already asked — go to the next layer underneath\n5. Should make the prospect pause and think before answering\n\nThis should feel like a question from a master therapist, not a sales script.`;
+      const userMessage = `FULL CONVERSATION TRANSCRIPT (chronological, numbered):\n${historyText}${calibrationContext}${stageContext}\n\nThe previous suggestion was:\n"${previousSuggestion}"\n\nThat suggestion was too surface-level. Generate a deeper follow-up that:\n1. Reviews the ENTIRE transcript above to find the emotional thread\n2. References specific things the prospect said (use their exact words)\n3. Pushes past the logical/rational layer into the emotional core\n4. Does NOT repeat anything already asked — go to the next layer underneath\n5. Feels like a question from a master therapist, not a sales script\n${WHOLE_CONTEXT_INSTRUCTIONS}`;
 
       const message = await anthropic.messages.create({
         model: 'claude-sonnet-4-6',
-        max_tokens: 300,
+        max_tokens: 400,
         system: NEPQ_SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userMessage }],
       });
@@ -84,12 +100,11 @@ export async function POST(request) {
     }
 
     if (pregenerate) {
-      // Pre-generation mode: return 3 ranked candidates that build on conversation context
-      const userMessage = `Full conversation transcript:\n${historyText}\n\nLatest speech: "${latestText}"${calibrationContext}${stageContext}\n\nGenerate exactly 3 different coaching suggestions the rep could say next, ranked by relevance. CRITICAL RULES:\n- Each suggestion MUST reference specific things the prospect said in the transcript\n- Do NOT suggest questions that have already been asked\n- Each suggestion should take a different depth level: one that continues the current thread, one that goes deeper emotionally, and one that connects to something said earlier in the conversation\n- Use the prospect's exact language in your suggestions where possible`;
+      const userMessage = `FULL CONVERSATION TRANSCRIPT (chronological, numbered):\n${historyText}${calibrationContext}${stageContext}\n\nGenerate exactly 3 different coaching suggestions the setter could use next, ranked by relevance (priority 1 = best).\n\nRULES:\n- Each suggestion MUST reference specific things the prospect said across the whole transcript\n- Do NOT suggest questions that have already been asked\n- Each suggestion takes a different angle: one continues the current thread, one goes deeper emotionally, one connects back to something said earlier\n- Use the prospect's exact language\n- Suggestions must be NEPQ-appropriate for the current stage\n${WHOLE_CONTEXT_INSTRUCTIONS}`;
 
       const message = await anthropic.messages.create({
         model: 'claude-sonnet-4-6',
-        max_tokens: 600,
+        max_tokens: 800,
         system: NEPQ_SYSTEM_PROMPT + `\n\n## PRE-GENERATION MODE\nReturn exactly 3 suggestions ranked by relevance. Format:\n{"candidates":[{"stage":"...","suggestions":[{"text":"...","why":"...","priority":N}],"prospectSentiment":"..."}]}\nEach candidate is a complete suggestion object. Rank by priority (1=best).`,
         messages: [{ role: 'user', content: userMessage }],
       });
@@ -133,12 +148,12 @@ export async function POST(request) {
       return NextResponse.json({ candidates: candidatesArr });
     }
 
-    // Standard single-suggestion mode (on-demand fallback)
-    const userMessage = `Full conversation transcript:\n${historyText}\n\nLatest speech: "${latestText}"${calibrationContext}${stageContext}\n\nSuggest exactly ONE thing the rep should say next. It MUST build on what the prospect has already said — reference their specific words and go deeper into what they revealed. Do NOT suggest anything generic or already asked.`;
+    // Standard single-suggestion mode (on-demand)
+    const userMessage = `FULL CONVERSATION TRANSCRIPT (chronological, numbered):\n${historyText}${calibrationContext}${stageContext}\n\nThe setter just tapped SUGGEST. Based on reviewing the ENTIRE conversation above (not just the last phrase), suggest the single best thing the setter should say next.${WHOLE_CONTEXT_INSTRUCTIONS}`;
 
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 300,
+      max_tokens: 400,
       system: NEPQ_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userMessage }],
     });

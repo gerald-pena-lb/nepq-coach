@@ -11,16 +11,20 @@ const styles = {
     position: 'sticky',
     top: 0,
     zIndex: 10,
+    gap: 12,
   },
   left: {
     display: 'flex',
     alignItems: 'center',
     gap: 10,
+    minWidth: 0,
+    flex: 1,
   },
   logo: {
     fontSize: 18,
     fontWeight: 700,
     letterSpacing: '-0.02em',
+    color: 'var(--text)',
   },
   dot: {
     width: 8,
@@ -31,20 +35,26 @@ const styles = {
   status: {
     fontSize: 12,
     color: 'var(--text-muted)',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
   },
   btn: {
-    padding: '8px 20px',
+    padding: '8px 18px',
     borderRadius: 8,
     fontSize: 14,
     fontWeight: 600,
     color: '#fff',
-    transition: 'opacity 0.15s',
+    transition: 'background 0.15s',
+    flexShrink: 0,
+    boxShadow: 'var(--shadow-sm)',
   },
   error: {
     fontSize: 12,
     color: 'var(--red)',
-    padding: '6px 16px',
-    background: 'rgba(248,113,113,0.08)',
+    padding: '8px 16px',
+    background: 'rgba(239, 68, 68, 0.08)',
+    borderBottom: '1px solid rgba(239, 68, 68, 0.15)',
   },
 };
 
@@ -68,12 +78,12 @@ export default function MeetingControls({
     <>
       <div style={styles.header}>
         <div style={styles.left}>
-          <span style={styles.logo}>NEPQ Coach</span>
+          <span style={styles.logo}>Jeremy</span>
           <span
             className={isActive ? 'pulse' : ''}
             style={{
               ...styles.dot,
-              background: isActive ? 'var(--green)' : 'var(--text-muted)',
+              background: isActive ? 'var(--green)' : 'var(--border-strong)',
             }}
           />
           <span style={styles.status}>{statusText}</span>
@@ -86,7 +96,7 @@ export default function MeetingControls({
           }}
           onClick={isActive ? onStop : onStart}
         >
-          {isActive ? 'Stop' : 'Start Coaching'}
+          {isActive ? 'Stop' : 'Start'}
         </button>
       </div>
 
