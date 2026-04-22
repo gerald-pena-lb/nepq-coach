@@ -30,14 +30,32 @@ function parseResponse(responseText, currentStage) {
     if (!parsed.suggestions || parsed.suggestions.length === 0) {
       parsed.suggestions = [{ text: responseText.slice(0, 200), why: '', priority: 1 }];
     }
+    // Enforce: exactly one question per suggestion
+    parsed.suggestions = parsed.suggestions.map((s) => ({
+      ...s,
+      text: enforceSingleQuestion(s.text || ''),
+    }));
     return parsed;
   } catch {
     return {
       stage: currentStage || 'COACHING',
-      suggestions: [{ text: responseText.slice(0, 200), why: '', priority: 1 }],
+      suggestions: [
+        { text: enforceSingleQuestion(responseText.slice(0, 300)), why: '', priority: 1 },
+      ],
       prospectSentiment: '',
     };
   }
+}
+
+// Trim suggestion text to end at the FIRST question mark.
+// Preserves any leading acknowledgment statements ("That makes sense.") before the first question.
+function enforceSingleQuestion(text) {
+  if (!text) return '';
+  const trimmed = text.trim();
+  const firstQ = trimmed.indexOf('?');
+  if (firstQ === -1) return trimmed; // no question mark — leave as-is
+  // Keep everything up to and including the first '?'
+  return trimmed.slice(0, firstQ + 1).trim();
 }
 
 // Instruction block added to every suggestion request — forces Claude to review the whole conversation
@@ -137,7 +155,12 @@ export async function POST(request) {
         .filter((c) => c.suggestions?.[0]?.text)
         .map((c) => ({
           stage: c.stage || currentStage || 'COACHING',
-          suggestions: [c.suggestions[0]],
+          suggestions: [
+            {
+              ...c.suggestions[0],
+              text: enforceSingleQuestion(c.suggestions[0].text),
+            },
+          ],
           prospectSentiment: c.prospectSentiment || '',
         }));
 
