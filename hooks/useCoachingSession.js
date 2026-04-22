@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 
 const SEND_INTERVAL_MS = 1500;
-const PREGEN_DEBOUNCE_MS = 2000; // debounce before pre-generating candidates
+const PREGEN_DEBOUNCE_MS = 700; // fire pre-gen shortly after each speech pause so candidates are ready fast
 
 export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, currentStage }) {
   const [transcripts, setTranscripts] = useState([]);

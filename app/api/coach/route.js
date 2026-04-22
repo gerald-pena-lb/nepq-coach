@@ -4,8 +4,31 @@ import { NEPQ_SYSTEM_PROMPT } from '@/lib/salesFramework';
 
 const anthropic = new Anthropic();
 
+// Models: Haiku for fast paths, Sonnet for deep reasoning
+const MODEL_FAST = 'claude-haiku-4-5-20251001';
+const MODEL_DEEP = 'claude-sonnet-4-6';
+
+// System prompt with caching — the large NEPQ prompt is reused across every request.
+// With cache_control: ephemeral, subsequent calls within 5 minutes get a ~85% TTFT reduction.
+const SYSTEM_CACHED = [
+  {
+    type: 'text',
+    text: NEPQ_SYSTEM_PROMPT,
+    cache_control: { type: 'ephemeral' },
+  },
+];
+
+const SYSTEM_CACHED_PREGEN = [
+  {
+    type: 'text',
+    text:
+      NEPQ_SYSTEM_PROMPT +
+      `\n\n## PRE-GENERATION MODE\nReturn exactly 2 suggestions ranked by relevance. Format:\n{"candidates":[{"stage":"...","suggestions":[{"text":"...","why":"...","priority":N}],"prospectSentiment":"..."}]}\nEach candidate is a complete suggestion object. Rank by priority (1=best).`,
+    cache_control: { type: 'ephemeral' },
+  },
+];
+
 function buildConversationContext(conversationHistory, repCalibration, currentStage) {
-  // Use the FULL conversation history, not just recent. Limit to last 60 entries to stay within context.
   const fullHistory = (conversationHistory || []).slice(-60);
   const historyText = fullHistory.map((t, i) => `[${i + 1}] ${t.text}`).join('\n');
 
@@ -30,7 +53,6 @@ function parseResponse(responseText, currentStage) {
     if (!parsed.suggestions || parsed.suggestions.length === 0) {
       parsed.suggestions = [{ text: responseText.slice(0, 200), why: '', priority: 1 }];
     }
-    // Enforce: exactly one question per suggestion
     parsed.suggestions = parsed.suggestions.map((s) => ({
       ...s,
       text: enforceSingleQuestion(s.text || ''),
@@ -47,29 +69,19 @@ function parseResponse(responseText, currentStage) {
   }
 }
 
-// Trim suggestion text to end at the FIRST question mark.
-// Preserves any leading acknowledgment statements ("That makes sense.") before the first question.
 function enforceSingleQuestion(text) {
   if (!text) return '';
   const trimmed = text.trim();
   const firstQ = trimmed.indexOf('?');
-  if (firstQ === -1) return trimmed; // no question mark — leave as-is
-  // Keep everything up to and including the first '?'
+  if (firstQ === -1) return trimmed;
   return trimmed.slice(0, firstQ + 1).trim();
 }
 
-// Instruction block added to every suggestion request — forces Claude to review the whole conversation
+// Shorter analysis instructions — trimmed to save output tokens without losing behavior
 const WHOLE_CONTEXT_INSTRUCTIONS = `
+
 ## HOW TO ANALYZE
-Before suggesting anything, do this analysis internally:
-
-1. **Read the ENTIRE conversation transcript above from start to finish.** Do not just react to the last thing said.
-2. **Identify the arc:** What has the prospect revealed across the whole conversation? What themes, emotions, specific details have come up more than once? What have they said they want, fear, have tried, or are avoiding?
-3. **Identify what's missing:** Based on the NEPQ framework for the CURRENT STAGE, what has NOT yet been explored that needs to be? What's the biggest gap in what you know about this prospect?
-4. **Identify the best NEPQ move:** Using the NEPQ script for the current stage, what is the single most valuable next question? It should reference specific things the prospect has said across the whole conversation — not just the last sentence.
-5. **Never repeat.** Scan the full transcript — if a similar question was already asked, do NOT suggest it again. Go deeper instead.
-
-Then output your JSON. The suggestion must feel like it was crafted by someone who has been listening to the entire call with full attention, not just the last few seconds.`;
+Read the ENTIRE transcript above. Identify themes, what's been revealed, what's missing for the current stage. Pick the single best NEPQ move. Reference the prospect's exact words. Never repeat a question. Output JSON only.`;
 
 export async function POST(request) {
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -90,7 +102,6 @@ export async function POST(request) {
       previousSuggestion,
     } = await request.json();
 
-    // Need at least some conversation history or latest text to work with
     const hasHistory = Array.isArray(conversationHistory) && conversationHistory.length > 0;
     const hasLatest = latestText && latestText.trim().length >= 5;
     if (!hasHistory && !hasLatest) {
@@ -104,12 +115,12 @@ export async function POST(request) {
       buildConversationContext(conversationHistory, repCalibration, currentStage);
 
     if (goDeeper && previousSuggestion) {
-      const userMessage = `FULL CONVERSATION TRANSCRIPT (chronological, numbered):\n${historyText}${calibrationContext}${stageContext}\n\nThe previous suggestion was:\n"${previousSuggestion}"\n\nThat suggestion was too surface-level. Generate a deeper follow-up that:\n1. Reviews the ENTIRE transcript above to find the emotional thread\n2. References specific things the prospect said (use their exact words)\n3. Pushes past the logical/rational layer into the emotional core\n4. Does NOT repeat anything already asked — go to the next layer underneath\n5. Feels like a question from a master therapist, not a sales script\n${WHOLE_CONTEXT_INSTRUCTIONS}`;
+      const userMessage = `FULL CONVERSATION TRANSCRIPT (chronological, numbered):\n${historyText}${calibrationContext}${stageContext}\n\nThe previous suggestion was:\n"${previousSuggestion}"\n\nThat suggestion was too surface-level. Generate a deeper follow-up that references the prospect's exact words, pushes past the logical layer into emotional core, and does NOT repeat anything already asked.${WHOLE_CONTEXT_INSTRUCTIONS}`;
 
       const message = await anthropic.messages.create({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 400,
-        system: NEPQ_SYSTEM_PROMPT,
+        model: MODEL_DEEP,
+        max_tokens: 350,
+        system: SYSTEM_CACHED,
         messages: [{ role: 'user', content: userMessage }],
       });
 
@@ -118,12 +129,12 @@ export async function POST(request) {
     }
 
     if (pregenerate) {
-      const userMessage = `FULL CONVERSATION TRANSCRIPT (chronological, numbered):\n${historyText}${calibrationContext}${stageContext}\n\nGenerate exactly 3 different coaching suggestions the setter could use next, ranked by relevance (priority 1 = best).\n\nRULES:\n- Each suggestion MUST reference specific things the prospect said across the whole transcript\n- Do NOT suggest questions that have already been asked\n- Each suggestion takes a different angle: one continues the current thread, one goes deeper emotionally, one connects back to something said earlier\n- Use the prospect's exact language\n- Suggestions must be NEPQ-appropriate for the current stage\n${WHOLE_CONTEXT_INSTRUCTIONS}`;
+      const userMessage = `FULL CONVERSATION TRANSCRIPT (chronological, numbered):\n${historyText}${calibrationContext}${stageContext}\n\nGenerate exactly 2 different coaching suggestions ranked by relevance (priority 1 = best). Each must reference specific things the prospect said. Do NOT repeat questions. Take different angles.${WHOLE_CONTEXT_INSTRUCTIONS}`;
 
       const message = await anthropic.messages.create({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 800,
-        system: NEPQ_SYSTEM_PROMPT + `\n\n## PRE-GENERATION MODE\nReturn exactly 3 suggestions ranked by relevance. Format:\n{"candidates":[{"stage":"...","suggestions":[{"text":"...","why":"...","priority":N}],"prospectSentiment":"..."}]}\nEach candidate is a complete suggestion object. Rank by priority (1=best).`,
+        model: MODEL_FAST,
+        max_tokens: 500,
+        system: SYSTEM_CACHED_PREGEN,
         messages: [{ role: 'user', content: userMessage }],
       });
 
@@ -171,13 +182,13 @@ export async function POST(request) {
       return NextResponse.json({ candidates: candidatesArr });
     }
 
-    // Standard single-suggestion mode (on-demand)
-    const userMessage = `FULL CONVERSATION TRANSCRIPT (chronological, numbered):\n${historyText}${calibrationContext}${stageContext}\n\nThe setter just tapped SUGGEST. Based on reviewing the ENTIRE conversation above (not just the last phrase), suggest the single best thing the setter should say next.${WHOLE_CONTEXT_INSTRUCTIONS}`;
+    // Standard single-suggestion mode (on-demand fallback)
+    const userMessage = `FULL CONVERSATION TRANSCRIPT (chronological, numbered):\n${historyText}${calibrationContext}${stageContext}\n\nThe setter just tapped SUGGEST. Based on the ENTIRE conversation, suggest the single best thing the setter should say next.${WHOLE_CONTEXT_INSTRUCTIONS}`;
 
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 400,
-      system: NEPQ_SYSTEM_PROMPT,
+      model: MODEL_FAST,
+      max_tokens: 300,
+      system: SYSTEM_CACHED,
       messages: [{ role: 'user', content: userMessage }],
     });
 
