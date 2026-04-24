@@ -14,7 +14,6 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
   const [repCalibration, setRepCalibration] = useState(null);
   const [hasCandidatesReady, setHasCandidatesReady] = useState(false);
 
-  const previousFullTranscript = useRef('');
   const pendingText = useRef('');
   const conversationHistory = useRef([]);
   const sendIntervalRef = useRef(null);
@@ -213,47 +212,41 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
     const blob = getWavBlob();
     if (!blob || blob.size < 1000) return;
 
-    const fullText = await transcribe(blob);
-    if (!fullText) return;
+    // Clear the buffer immediately so the next interval only captures NEW audio
+    clearBuffer();
 
-    // Compute delta from previous full transcript
-    const prev = previousFullTranscript.current;
-    let delta = fullText;
-    if (prev && fullText.startsWith(prev)) {
-      delta = fullText.slice(prev.length).trim();
-    } else if (prev && fullText.length > prev.length) {
-      delta = fullText.slice(prev.length).trim();
-    }
+    const text = await transcribe(blob);
+    if (!text) return;
 
-    previousFullTranscript.current = fullText;
+    const trimmed = text.trim();
 
-    if (!delta) return;
+    // Skip noise: too short, just punctuation, or no real words
+    if (trimmed.length < 4 || !/[a-zA-Z]{3,}/.test(trimmed)) return;
 
     // Add to transcript display
     setTranscripts((t) => [
       ...t,
-      { text: delta, timestamp: new Date().toISOString() },
+      { text: trimmed, timestamp: new Date().toISOString() },
     ]);
 
     // Add to conversation history (keep last 50, trim to 30)
-    conversationHistory.current.push({ text: delta });
+    conversationHistory.current.push({ text: trimmed });
     if (conversationHistory.current.length > 50) {
       conversationHistory.current = conversationHistory.current.slice(-30);
     }
 
     // Accumulate pending text
-    pendingText.current += ' ' + delta;
+    pendingText.current += ' ' + trimmed;
 
     // Debounce pre-generation: regenerate candidates after speech pauses
     if (pregenTimer.current) clearTimeout(pregenTimer.current);
     pregenTimer.current = setTimeout(pregenerate, PREGEN_DEBOUNCE_MS);
-  }, [isCapturing, getWavBlob, transcribe, pregenerate]);
+  }, [isCapturing, getWavBlob, clearBuffer, transcribe, pregenerate]);
 
   // Start/stop the send interval when capturing changes
   useEffect(() => {
     if (isCapturing) {
       setSessionStartedAt(new Date().toISOString());
-      previousFullTranscript.current = '';
       pendingText.current = '';
       conversationHistory.current = [];
       candidates.current = [];
@@ -315,7 +308,6 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
     setRepCalibration(null);
     setCoachError(null);
     setHasCandidatesReady(false);
-    previousFullTranscript.current = '';
     pendingText.current = '';
     conversationHistory.current = [];
     candidates.current = [];
