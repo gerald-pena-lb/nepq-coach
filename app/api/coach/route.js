@@ -4,9 +4,9 @@ import { NEPQ_SYSTEM_PROMPT } from '@/lib/salesFramework';
 
 const anthropic = new Anthropic();
 
-// Models: Haiku for fast paths, Sonnet for deep reasoning
-const MODEL_FAST = 'claude-haiku-4-5-20251001';
-const MODEL_DEEP = 'claude-sonnet-4-6';
+// Models: Opus 4.6 for all suggestion paths
+const MODEL_FAST = 'claude-opus-4-6';
+const MODEL_DEEP = 'claude-opus-4-6';
 
 // System prompt with caching — the large NEPQ prompt is reused across every request.
 // With cache_control: ephemeral, subsequent calls within 5 minutes get a ~85% TTFT reduction.
