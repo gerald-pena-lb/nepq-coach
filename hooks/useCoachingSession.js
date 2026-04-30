@@ -2,10 +2,9 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 
-const SEND_INTERVAL_MS = 1500;
-const PREGEN_DEBOUNCE_MS = 700; // fire pre-gen shortly after each speech pause so candidates are ready fast
+const PREGEN_DEBOUNCE_MS = 700;
 
-export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, currentStage }) {
+export function useCoachingSession({ isCapturing, currentStage }) {
   const [transcripts, setTranscripts] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -16,44 +15,32 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
 
   const pendingText = useRef('');
   const conversationHistory = useRef([]);
-  const sendIntervalRef = useRef(null);
 
   // Pre-generation state
-  const candidates = useRef([]); // cached suggestion candidates
-  const candidateTextSnapshot = useRef(''); // text used to generate candidates
+  const candidates = useRef([]);
+  const candidateTextSnapshot = useRef('');
   const pregenTimer = useRef(null);
-  const pregenAbort = useRef(null); // AbortController for in-flight pregen
+  const pregenAbort = useRef(null);
   const isPregenning = useRef(false);
 
-  const transcribe = useCallback(async (blob) => {
+  // Calibrate using the old transcribe endpoint (one-time, small payload)
+  const calibrate = useCallback(async (blob) => {
     const formData = new FormData();
     formData.append('audio', blob, 'audio.wav');
-
     try {
-      const res = await fetch('/api/transcribe', {
-        method: 'POST',
-        body: formData,
-      });
-
+      const res = await fetch('/api/transcribe', { method: 'POST', body: formData });
       if (!res.ok) return null;
       const data = await res.json();
-      return data.text || '';
+      const text = data.text?.trim();
+      if (text && text.length > 5) {
+        setRepCalibration(text);
+        return text;
+      }
+      return null;
     } catch {
       return null;
     }
   }, []);
-
-  const calibrate = useCallback(
-    async (blob) => {
-      const text = await transcribe(blob);
-      if (text && text.trim().length > 5) {
-        setRepCalibration(text.trim());
-        return text.trim();
-      }
-      return null;
-    },
-    [transcribe]
-  );
 
   // Pre-generate candidates in the background
   const pregenerate = useCallback(async () => {
@@ -66,12 +53,10 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
     }
     if (text.length < 5) return;
 
-    // Don't re-generate for the same text
     if (text === candidateTextSnapshot.current && candidates.current.length > 0) return;
 
     isPregenning.current = true;
 
-    // Abort any previous in-flight pregen
     if (pregenAbort.current) pregenAbort.current.abort();
     pregenAbort.current = new AbortController();
 
@@ -106,21 +91,32 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
     }
   }, [repCalibration, currentStage]);
 
-  // Helper to get current conversation text (for pregen trigger only)
-  const getConversationText = useCallback(() => {
-    let text = pendingText.current.trim();
-    if (text.length < 5) {
-      const recent = conversationHistory.current.slice(-5);
-      text = recent.map((t) => t.text).join(' ').trim();
-    }
-    return text;
-  }, []);
+  // Called by the WebSocket transcript callback — this replaces the old processAudio
+  const addTranscript = useCallback(
+    (text) => {
+      setTranscripts((t) => [
+        ...t,
+        { text, timestamp: new Date().toISOString() },
+      ]);
 
-  // When user taps "Suggest" — instantly show cached candidate, or generate on demand
+      conversationHistory.current.push({ text });
+      if (conversationHistory.current.length > 50) {
+        conversationHistory.current = conversationHistory.current.slice(-30);
+      }
+
+      pendingText.current += ' ' + text;
+
+      // Debounce pre-generation
+      if (pregenTimer.current) clearTimeout(pregenTimer.current);
+      pregenTimer.current = setTimeout(pregenerate, PREGEN_DEBOUNCE_MS);
+    },
+    [pregenerate]
+  );
+
+  // When user taps "Suggest"
   const requestSuggestion = useCallback(async () => {
-    // If we have fresh candidates, show the best one instantly
     if (candidates.current.length > 0) {
-      const best = candidates.current[0]; // ranked by priority from API
+      const best = candidates.current[0];
       setSuggestions((prev) => [best, ...prev]);
       candidates.current = [];
       candidateTextSnapshot.current = '';
@@ -129,7 +125,6 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
       return;
     }
 
-    // Fallback: generate on demand using the full conversation history
     if (conversationHistory.current.length === 0 && pendingText.current.trim().length < 5) {
       return;
     }
@@ -143,7 +138,10 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           conversationHistory: conversationHistory.current,
-          latestText: pendingText.current.trim() || conversationHistory.current.slice(-1)[0]?.text || '',
+          latestText:
+            pendingText.current.trim() ||
+            conversationHistory.current.slice(-1)[0]?.text ||
+            '',
           repCalibration: repCalibration,
           currentStage: currentStage,
         }),
@@ -167,7 +165,7 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
     }
   }, [repCalibration, currentStage]);
 
-  // "Go Deeper" — takes the current suggestion and generates a deeper follow-up
+  // "Go Deeper"
   const goDeeper = useCallback(async () => {
     const currentSuggestion = suggestions[0]?.suggestions?.[0]?.text;
     if (!currentSuggestion) return;
@@ -181,7 +179,10 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           conversationHistory: conversationHistory.current,
-          latestText: pendingText.current.trim() || conversationHistory.current.slice(-1)[0]?.text || '',
+          latestText:
+            pendingText.current.trim() ||
+            conversationHistory.current.slice(-1)[0]?.text ||
+            '',
           repCalibration: repCalibration,
           currentStage: currentStage,
           goDeeper: true,
@@ -206,44 +207,7 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
     }
   }, [suggestions, repCalibration, currentStage]);
 
-  const processAudio = useCallback(async () => {
-    if (!isCapturing) return;
-
-    const blob = getWavBlob();
-    if (!blob || blob.size < 1000) return;
-
-    // Clear the buffer immediately so the next interval only captures NEW audio
-    clearBuffer();
-
-    const text = await transcribe(blob);
-    if (!text) return;
-
-    const trimmed = text.trim();
-
-    // Skip noise: too short, just punctuation, or no real words
-    if (trimmed.length < 4 || !/[a-zA-Z]{3,}/.test(trimmed)) return;
-
-    // Add to transcript display
-    setTranscripts((t) => [
-      ...t,
-      { text: trimmed, timestamp: new Date().toISOString() },
-    ]);
-
-    // Add to conversation history (keep last 50, trim to 30)
-    conversationHistory.current.push({ text: trimmed });
-    if (conversationHistory.current.length > 50) {
-      conversationHistory.current = conversationHistory.current.slice(-30);
-    }
-
-    // Accumulate pending text
-    pendingText.current += ' ' + trimmed;
-
-    // Debounce pre-generation: regenerate candidates after speech pauses
-    if (pregenTimer.current) clearTimeout(pregenTimer.current);
-    pregenTimer.current = setTimeout(pregenerate, PREGEN_DEBOUNCE_MS);
-  }, [isCapturing, getWavBlob, clearBuffer, transcribe, pregenerate]);
-
-  // Start/stop the send interval when capturing changes
+  // Session lifecycle
   useEffect(() => {
     if (isCapturing) {
       setSessionStartedAt(new Date().toISOString());
@@ -253,28 +217,22 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
       candidateTextSnapshot.current = '';
       setHasCandidatesReady(false);
 
-      sendIntervalRef.current = setInterval(processAudio, SEND_INTERVAL_MS);
-
       return () => {
-        clearInterval(sendIntervalRef.current);
         if (pregenTimer.current) clearTimeout(pregenTimer.current);
         if (pregenAbort.current) pregenAbort.current.abort();
       };
     } else {
-      if (sendIntervalRef.current) clearInterval(sendIntervalRef.current);
       if (pregenTimer.current) clearTimeout(pregenTimer.current);
       if (pregenAbort.current) pregenAbort.current.abort();
     }
-  }, [isCapturing, processAudio]);
+  }, [isCapturing]);
 
   // Re-trigger pre-generation when stage changes
   useEffect(() => {
     if (isCapturing && currentStage) {
-      // Invalidate current candidates since stage changed
       candidates.current = [];
       candidateTextSnapshot.current = '';
       setHasCandidatesReady(false);
-      // Immediately pre-generate for new stage
       if (pregenTimer.current) clearTimeout(pregenTimer.current);
       pregenTimer.current = setTimeout(pregenerate, 500);
     }
@@ -282,7 +240,6 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
 
   const saveCall = useCallback(async () => {
     if (!sessionStartedAt) return;
-
     try {
       await fetch('/api/calls', {
         method: 'POST',
@@ -297,7 +254,7 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
         }),
       });
     } catch {
-      // Silent fail — persistence is optional
+      // Silent fail
     }
   }, [transcripts, suggestions, sessionStartedAt]);
 
@@ -313,8 +270,7 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
     candidates.current = [];
     candidateTextSnapshot.current = '';
     if (pregenAbort.current) pregenAbort.current.abort();
-    if (clearBuffer) clearBuffer();
-  }, [clearBuffer]);
+  }, []);
 
   return {
     transcripts,
@@ -325,6 +281,7 @@ export function useCoachingSession({ getWavBlob, clearBuffer, isCapturing, curre
     repCalibration,
     hasCandidatesReady,
     calibrate,
+    addTranscript,
     requestSuggestion,
     goDeeper,
     saveCall,

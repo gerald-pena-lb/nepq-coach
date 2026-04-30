@@ -168,11 +168,16 @@ export default function HomePage() {
   const audio = useAudioCapture();
   const stageLabel = STAGES.find((s) => s.id === activeStage)?.label || activeStage;
   const session = useCoachingSession({
-    getWavBlob: audio.getWavBlob,
-    clearBuffer: audio.clearBuffer,
     isCapturing: isSessionActive && audio.isCapturing,
     currentStage: stageLabel,
   });
+
+  // Wire WebSocket transcript callback to session
+  useEffect(() => {
+    audio.setOnTranscript((text) => {
+      session.addTranscript(text);
+    });
+  }, [audio, session]);
 
   const handleModeChange = useCallback(
     (newMode) => {
@@ -202,12 +207,12 @@ export default function HomePage() {
   }, [audio, session]);
 
   const beginCalibration = useCallback(
-    async (mode) => {
+    async (selectedMode) => {
       setShowSourcePicker(false);
-      if (mode === 'mic') {
-        await audio.startMic();
+      if (selectedMode === 'mic') {
+        await audio.startMic(true); // calibration mode — buffer audio, no WS
       } else {
-        await audio.startTab();
+        await audio.startTab(true);
       }
       setCalibrating(true);
       setCalibratedDone(false);
@@ -224,21 +229,24 @@ export default function HomePage() {
     setCalibratedDone(true);
   }, [audio, session]);
 
-  const startSession = useCallback(() => {
+  const startSession = useCallback(async () => {
     setCalibrating(false);
     setCalibratedDone(false);
-    setIsSessionActive(true);
     setActiveStage('connect');
     setMode('listen');
-  }, []);
+    // Switch audio from calibration mode to WebSocket streaming
+    await audio.switchToStreaming();
+    setIsSessionActive(true);
+  }, [audio]);
 
-  const skipCalibration = useCallback(() => {
+  const skipCalibration = useCallback(async () => {
     audio.clearBuffer();
     setCalibrating(false);
     setCalibratedDone(false);
-    setIsSessionActive(true);
     setActiveStage('connect');
     setMode('listen');
+    await audio.switchToStreaming();
+    setIsSessionActive(true);
   }, [audio]);
 
   useEffect(() => {
